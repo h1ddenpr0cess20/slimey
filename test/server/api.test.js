@@ -1,0 +1,135 @@
+import assert from 'node:assert/strict';
+import { after, describe, it } from 'node:test';
+
+import { createApiMiddleware } from '../../src/server/api.js';
+import { loadConfig } from '../../src/server/config.js';
+import { startOpenAIStub } from '../helpers/openai-stub.js';
+import { withServer } from '../helpers/request.js';
+
+async function api(env = {}, stubOptions) {
+  const stub = await startOpenAIStub(stubOptions);
+  const config = loadConfig({ OPENAI_API_KEY: 'sk-test', OPENAI_BASE_URL: stub.baseUrl, ...env });
+  return { stub, middleware: createApiMiddleware(config) };
+}
+
+const post = (body) => ({
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: typeof body === 'string' ? body : JSON.stringify(body),
+});
+
+describe('GET /api/models', () => {
+  it('returns the catalog and both defaults', async () => {
+    const { stub, middleware } = await api({ OPENAI_VOICE: 'cedar' });
+    after(() => stub.close());
+
+    await withServer(middleware, async (request) => {
+      const { status, body } = await request('/api/models');
+      assert.equal(status, 200);
+      assert.equal(body.model, 'gpt-realtime-2.1');
+      assert.equal(body.voice, 'cedar');
+      assert.ok(body.voices.includes('cedar'));
+      assert.ok(body.models.every((m) => m.id.includes('realtime')));
+    });
+  });
+
+  it('reports an upstream failure as a 502, not as its own error', async () => {
+    const { stub, middleware } = await api({}, { fail: { status: 500, message: 'upstream is down' } });
+    after(() => stub.close());
+
+    await withServer(middleware, async (request) => {
+      const { status, body } = await request('/api/models');
+      assert.equal(status, 502);
+      assert.match(body.error, /upstream is down/);
+    });
+  });
+});
+
+describe('POST /api/session', () => {
+  it('mints a secret for the requested model and voice', async () => {
+    const { stub, middleware } = await api();
+    after(() => stub.close());
+
+    await withServer(middleware, async (request) => {
+      const { status, body } = await request('/api/session', post({ model: 'gpt-realtime-mini', voice: 'marin' }));
+      assert.equal(status, 200);
+      assert.equal(body.value, 'ek_test');
+      assert.equal(body.voice, 'marin');
+      assert.equal(body.model, 'gpt-realtime-mini');
+    });
+  });
+
+  it('accepts an empty body and uses the defaults', async () => {
+    const { stub, middleware } = await api();
+    after(() => stub.close());
+
+    await withServer(middleware, async (request) => {
+      const { status, body } = await request('/api/session', { method: 'POST' });
+      assert.equal(status, 200);
+      assert.equal(body.voice, 'ballad');
+    });
+  });
+
+  it('rejects a malformed body with a 400', async () => {
+    const { stub, middleware } = await api();
+    after(() => stub.close());
+
+    await withServer(middleware, async (request) => {
+      const { status, body } = await request('/api/session', post('{not json'));
+      assert.equal(status, 400);
+      assert.equal(body.error, 'malformed request body');
+    });
+  });
+
+  it('refuses a body far larger than a model id and a voice name', async () => {
+    const { stub, middleware } = await api();
+    after(() => stub.close());
+
+    await withServer(middleware, async (request) => {
+      const { status } = await request('/api/session', post({ model: 'x'.repeat(10_000) }));
+      assert.equal(status, 400);
+    });
+  });
+});
+
+describe('routing', () => {
+  it('answers /api/* with a 500 when the key is missing, before calling anyone', async () => {
+    const { stub } = await api();
+    after(() => stub.close());
+
+    const keyless = createApiMiddleware(loadConfig({ OPENAI_BASE_URL: stub.baseUrl }));
+    await withServer(keyless, async (request) => {
+      const { status, body } = await request('/api/models');
+      assert.equal(status, 500);
+      assert.match(body.error, /OPENAI_API_KEY/);
+      assert.equal(stub.requests.length, 0);
+    });
+  });
+
+  it('404s an unknown /api route rather than falling through to static', async () => {
+    const { stub, middleware } = await api();
+    after(() => stub.close());
+
+    await withServer(middleware, async (request) => {
+      assert.equal((await request('/api/nope')).status, 404);
+      // Right path, wrong verb — still not a route.
+      assert.equal((await request('/api/models', { method: 'POST' })).status, 404);
+      assert.equal((await request('/api/session')).status, 404);
+    });
+  });
+
+  it('passes anything outside /api/ down the chain', async () => {
+    const { stub, middleware } = await api();
+    after(() => stub.close());
+
+    const sentinel = (req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('fell through');
+    };
+
+    await withServer([middleware, sentinel], async (request) => {
+      assert.equal((await request('/')).body, 'fell through');
+      assert.equal((await request('/assets/index.js')).body, 'fell through');
+    });
+  });
+});
