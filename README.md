@@ -9,27 +9,37 @@ back, and the surface moves with whichever of you is making sound.
 ```sh
 git clone https://github.com/h1ddenpr0cess20/slimey
 cd slimey
-export OPENAI_API_KEY=sk-...
-npm start          # → http://localhost:5173
+npm install
+cp .env.example .env      # add your OPENAI_API_KEY
+npm run dev               # → http://localhost:5173
 ```
 
-No `npm install` — there are no dependencies. The proxy is plain `node:http` and
-`fetch`, so Node 18+ is all it needs. Click the mic, allow the browser's
-microphone prompt, and start talking.
+Click the mic, allow the browser's microphone prompt, and start talking.
 
-Open it on `localhost`. Microphone access needs a secure context, so serving this
-from a LAN address over plain HTTP will fail at the mic prompt — put it behind
-HTTPS if you want it off your own machine.
+| Script | |
+|---|---|
+| `npm run dev` | Vite, with the proxy mounted as middleware — one process |
+| `npm run build` | Bundles the client to `dist/` |
+| `npm start` | Serves `dist/` with the same proxy in front |
+| `npm run preview` | `build` then `start` |
+| `npm test` | `node:test` over the server |
+| `npm run lint` | |
+
+Open it on `localhost`. Microphone access needs a secure context, so serving
+this from a LAN address over plain HTTP will fail at the mic prompt — put it
+behind HTTPS if you want it off your own machine. `npm run dev -- --host` binds
+to the network anyway, which is useful for checking layout on a phone even
+though that phone won't get past the mic prompt.
 
 | Variable | Default | Role |
 |---|---|---|
 | `OPENAI_API_KEY` | — | Required. Stays in the Node process. |
 | `OPENAI_VOICE` | `ballad` | Which voice the picker opens on (`ballad`, `marin`, `cedar`, `verse`, …) |
 | `OPENAI_REALTIME_MODEL` | `gpt-realtime-2.1` | Preselected in the picker when the key can reach it |
+| `OPENAI_BASE_URL` | OpenAI | Points the proxy at a gateway or a stub |
 | `PORT` | `5173` | |
 
-`three.js` loads from unpkg via the pinned import map, so the page needs network
-access on first load.
+Both `npm run dev` and `npm start` read `.env`.
 
 ## How the call is wired
 
@@ -54,8 +64,13 @@ slime with nothing to say back.
 
 Both pickers are pinned into that secret, so changing the model or the voice
 mid-call hangs up and dials again — the conversation doesn't carry over, since the
-new voice has no memory of what the old one said. `OPENAI_BASE_URL` redirects the
-proxy at a gateway or a stub if you need one.
+new voice has no memory of what the old one said.
+
+The proxy is connect-style middleware rather than a server, which is why there
+is only one implementation of `/api/*`: `vite.config.js` mounts it in
+development and `src/server/app.js` mounts it in front of the static handler in
+production. No second process, no request forwarding, and the key lives in
+exactly one place either way.
 
 ## Tools — not yet
 
@@ -73,7 +88,7 @@ both are cheap here:
   `session.tools` at a server URL and its tools are live. Anything needing auth
   headers belongs in the server-side `/v1/realtime/client_secrets` payload rather
   than in browser code — which is already exactly where `sessionConfig()` lives,
-  so this is a few lines in `server.js` and nothing in the page.
+  so this is a few lines in `src/server/persona.js` and nothing in the page.
 
 **The plan: pick it up when GPT-Live reaches the API, and move onto that at the
 same time.** GPT-Live shipped to ChatGPT in July 2026 — full-duplex, so it listens
@@ -84,13 +99,46 @@ replaced.
 
 ## Layout
 
-| File | Role |
-|---|---|
-| `slime-orb.html` | Markup, styles, and the wiring between session and orb |
-| `orb.js` | The orb. Owns all geometry and animation; knows nothing about transports |
-| `session.js` | The call. Owns the peer connection, emits transport-agnostic events |
-| `server.js` | Static host + `/api/models` + `/api/session` |
-| `three-d-stage.js` | Unmodified starter component (renderer, lighting, camera, controls) |
+```
+index.html              Markup only — Vite's entry
+src/
+  client/
+    main.js             The wiring, and nothing else
+    styles.css          The HUD around the orb
+    api.js              The proxy's two endpoints, as functions
+    orb/                Geometry and animation. Knows nothing about transports
+      index.js            The controller and the per-frame loop
+      modes.js            Targets per conversational state
+      parts.js            Shell, core, glow, bubbles
+      deform.js           The displacement kernel both surfaces run
+      lobes.js            The directional sines that make it bulge
+      palette.js          The colours it drifts through
+      environment.js      Studio env map, so the shell has something to refract
+    session/            The call. Emits transport-agnostic events
+      index.js            Lifecycle: mic, secret, connect, meter, tear down
+      webrtc.js           Peer connection, data channel, SDP handshake
+      events.js           Realtime server events → this vocabulary
+      metering.js         Two analysers → one 0..1 number per frame
+      emitter.js
+    ui/                 What you read and what you press
+      hud.js              Status chip, transcript, caption
+      controls.js         Mic, text field, send, pickers
+      viewport.js         Keeps the composer above the on-screen keyboard
+    vendor/
+      three-d-stage.js    Starter component (renderer, lighting, camera, controls)
+  server/
+    index.js            Entry point
+    app.js              The middleware chain
+    api.js              /api/models + /api/session
+    openai.js           The two calls it makes
+    persona.js          Who the slime is, and the session config
+    config.js           The environment, resolved once
+    static.js           Hosting for dist/ — production only
+test/                   node:test, against a stub OpenAI
+```
+
+`src/client/vendor/three-d-stage.js` is a copied starter component with two
+local changes, listed at the top of the file — re-copying it drops them.
 
 ## States
 
@@ -105,7 +153,7 @@ while the model's track is live, `idle` when there is no call.
 
 ## The transport seam
 
-`session.js` exposes `on`, `start`, `stop`, `send`, `cancel`, `messages`,
+`session/index.js` exposes `on`, `start`, `stop`, `send`, `cancel`, `messages`,
 `connected`, `busy`, `state`, `model`, `voice` — and emits:
 
 ```
@@ -131,5 +179,5 @@ two `AnalyserNode`s, one on the mic and one on the model's track, read per frame
 and smoothed with a fast attack and a slow release. `pulse` is left for the beats
 where a turn changes hands, so the wobble punctuates instead of strobing.
 
-Swapping providers means writing a different `create*Session()` with that surface.
-The page's wiring block and the orb do not change.
+Swapping providers means writing a different `createVoiceSession()` with that
+surface. `main.js` and the orb do not change.
