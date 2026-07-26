@@ -1,8 +1,9 @@
 # Slime Orb
 
-A voice agent with a face: a translucent colour-shifting slime whose deformation,
-glow and colour drift are driven by a live OpenAI Realtime call. You talk, it
-talks back, and the surface moves with whichever of you is making sound.
+A voice agent rendered as a slime — no face, it emotes by deforming. Translucent
+and colour-shifting, its wobble, glow and hue drift are driven by a live OpenAI
+Realtime call. You talk, it talks back, and the surface moves with whichever of
+you is making sound.
 
 ## Run
 
