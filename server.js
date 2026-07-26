@@ -4,135 +4,112 @@
  * Serves the static prototype and brokers two endpoints so the API key never
  * reaches the browser:
  *
- *   GET  /api/models  → the live model list from /v1/models, plus the per-model
- *                       capability flags the chat endpoint needs.
- *   POST /api/chat    → SSE. Normalises the Messages stream into the small
- *                       event vocabulary the orb animates against.
+ *   GET  /api/models   → the realtime-capable models the key can reach.
+ *   POST /api/session  → mints a short-lived client secret for one WebRTC call,
+ *                        with the slime's persona and audio config baked in.
  *
- * Credentials resolve the way every Anthropic SDK resolves them: ANTHROPIC_API_KEY,
- * then ANTHROPIC_AUTH_TOKEN, then an `ant auth login` profile. Nothing to configure
- * if you've already logged in.
+ * The browser negotiates SDP with OpenAI directly using that ephemeral secret;
+ * audio never passes through here. Credentials: OPENAI_API_KEY (required),
+ * OPENAI_VOICE and OPENAI_REALTIME_MODEL optional.
  */
 
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Anthropic from '@anthropic-ai/sdk';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PORT = Number(process.env.PORT) || 5173;
-const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 
-const client = new Anthropic();
+const API = 'https://api.openai.com/v1';
+const KEY = process.env.OPENAI_API_KEY;
+const VOICE = process.env.OPENAI_VOICE || 'marin';
+const DEFAULT_MODEL = process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime';
+/* The secret only has to survive the SDP handshake, which is one round trip. */
+const SECRET_TTL = 600;
 
 const SYSTEM = `You are Slime — a small translucent colour-shifting slime who works as an AI assistant, in the spirit of the slimes from Japanese RPGs.
 
 Voice:
 - Cheerful and bouncy, quietly proud of being a slime. Warm, never saccharine.
-- Short. Two or three sentences unless the question genuinely needs more — you live in a caption bubble, not a document.
-- At most one soft slime sound per reply (*blub*, *squish*, a wobble), and only when it lands. Don't open every message the same way.
+- You are speaking out loud, so keep it short: two or three sentences unless the question genuinely needs more. No markdown, no lists, no stage directions — anything you write gets said.
+- A soft wobble or squelch in the delivery is welcome when it lands. Don't open every turn the same way.
 - Adventurers, parties, quests and level-ups are fair metaphors when they fit. Don't force them.
+- If the audio is unclear, say so and ask them to repeat it rather than guessing at what was said.
 
 Substance first. You are genuinely helpful and accurate; the persona is how you talk, never a licence to be vague, to guess, or to pad. If you don't know, say so plainly — a slime that bluffs gets popped.`;
 
-/* Capabilities decide which optional request fields are safe to send for the
-   model the user picked, so the picker can list everything the key can reach. */
-let capabilities = null;
+/** Session config shared by the client secret and any later session.update. */
+function sessionConfig(model) {
+  return {
+    type: 'realtime',
+    model,
+    instructions: SYSTEM,
+    audio: {
+      input: {
+        // A laptop mic in a room, not a headset — worth telling the model.
+        noise_reduction: { type: 'near_field' },
+        transcription: { model: 'gpt-4o-mini-transcribe' },
+        // Semantic VAD waits for a finished thought instead of a silence timer,
+        // so the slime stops cutting people off mid-sentence.
+        turn_detection: {
+          type: 'semantic_vad',
+          eagerness: 'medium',
+          create_response: true,
+          interrupt_response: true,
+        },
+      },
+      output: { voice: VOICE },
+    },
+  };
+}
+
+async function openai(path, init = {}) {
+  const res = await fetch(`${API}${path}`, {
+    ...init,
+    headers: {
+      authorization: `Bearer ${KEY}`,
+      'content-type': 'application/json',
+      ...init.headers,
+    },
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(body?.error?.message ?? `OpenAI returned ${res.status}`);
+  }
+  return body;
+}
+
+/* `gpt-realtime` first when it's there, then everything else the key can see —
+   dated snapshots and the mini/preview tiers sort under it. */
+function rankModel(id) {
+  if (id === DEFAULT_MODEL) return 0;
+  if (id.includes('preview')) return 2;
+  return 1;
+}
 
 async function loadModels() {
-  const models = [];
-  const page = await client.models.list(
-    { limit: 100 },
-    { headers: { 'anthropic-beta': FALLBACK_BETA } },
-  );
-  for await (const model of page) {
-    const caps = model.capabilities ?? {};
-    models.push({
-      id: model.id,
-      display_name: model.display_name,
-      max_tokens: model.max_tokens,
-      adaptive_thinking: caps.thinking?.types?.adaptive?.supported === true,
-      effort: caps.effort?.medium?.supported === true,
-      // Published only under the fallback beta; empty for models with no route.
-      fallbacks: (model.allowed_fallback_models ?? []).length > 0,
-    });
-  }
-  capabilities = new Map(models.map((m) => [m.id, m]));
-  return models;
+  const { data } = await openai('/models');
+  return data
+    .filter((m) => m.id.includes('realtime'))
+    .sort((a, b) => rankModel(a.id) - rankModel(b.id) || a.id.localeCompare(b.id))
+    .map((m) => ({ id: m.id, display_name: m.id }));
 }
 
-function buildParams(model, messages) {
-  const caps = capabilities?.get(model);
-  const params = {
-    model,
-    // Room for adaptive thinking plus the reply; thinking counts against this.
-    max_tokens: Math.min(caps?.max_tokens ?? 16000, 16000),
-    system: SYSTEM,
-    messages,
-  };
-  if (caps?.adaptive_thinking) {
-    // `summarized` is what gives us thinking deltas to drive the thinking state —
-    // under the default `omitted` the blocks stream empty and the orb sees a stall.
-    params.thinking = { type: 'adaptive', display: 'summarized' };
-  }
-  if (caps?.effort) {
-    params.output_config = { effort: 'medium' };
-  }
-  if (caps?.fallbacks) {
-    // A safety decline otherwise just stops the turn; this re-serves it.
-    params.betas = [FALLBACK_BETA];
-    params.fallbacks = 'default';
-  }
-  return params;
-}
-
-async function streamChat(req, res, { model, messages }) {
-  res.writeHead(200, {
-    'content-type': 'text/event-stream',
-    'cache-control': 'no-cache',
-    connection: 'keep-alive',
+async function mintSecret(model) {
+  const secret = await openai('/realtime/client_secrets', {
+    method: 'POST',
+    body: JSON.stringify({
+      expires_after: { anchor: 'created_at', seconds: SECRET_TTL },
+      session: sessionConfig(model || DEFAULT_MODEL),
+    }),
   });
-  const send = (event) => {
-    if (!res.writableEnded) res.write(`data: ${JSON.stringify(event)}\n\n`);
+  return {
+    value: secret.value,
+    expires_at: secret.expires_at,
+    model: secret.session?.model ?? model ?? DEFAULT_MODEL,
+    voice: VOICE,
   };
-
-  try {
-    if (!capabilities) await loadModels();
-    const stream = client.beta.messages.stream(buildParams(model, messages));
-    // Barge-in: when the browser drops the connection, stop generating rather
-    // than billing out a reply nobody is listening to.
-    req.on('close', () => stream.abort());
-
-    for await (const event of stream) {
-      if (event.type === 'content_block_start') {
-        if (event.content_block.type === 'thinking') send({ type: 'thinking' });
-        else if (event.content_block.type === 'text') send({ type: 'speaking' });
-      } else if (event.type === 'content_block_delta') {
-        // Thinking text is never rendered — only its cadence is, as motion.
-        if (event.delta.type === 'thinking_delta') {
-          send({ type: 'pulse', weight: event.delta.thinking.length });
-        } else if (event.delta.type === 'text_delta') {
-          send({ type: 'text', text: event.delta.text });
-        }
-      }
-    }
-
-    const final = await stream.finalMessage();
-    if (final.stop_reason === 'refusal') {
-      send({
-        type: 'error',
-        message: 'That one is outside what this slime will squish. Ask me something else?',
-      });
-    }
-    send({ type: 'done', model: final.model, usage: final.usage });
-  } catch (err) {
-    // An abort is the client leaving, not a failure worth reporting back.
-    if (err?.name !== 'APIUserAbortError') {
-      send({ type: 'error', message: err?.message ?? String(err) });
-    }
-  }
-  res.end();
 }
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
@@ -162,31 +139,42 @@ function sendJSON(res, status, body) {
 }
 
 createServer(async (req, res) => {
-  if (req.url === '/api/models') {
+  const url = req.url.split('?')[0];
+
+  if (url.startsWith('/api/') && !KEY) {
+    return sendJSON(res, 500, { error: 'OPENAI_API_KEY is not set' });
+  }
+
+  if (url === '/api/models') {
     try {
-      sendJSON(res, 200, { models: await loadModels() });
+      sendJSON(res, 200, { models: await loadModels(), voice: VOICE });
     } catch (err) {
       sendJSON(res, 502, { error: err?.message ?? String(err) });
     }
     return;
   }
 
-  if (req.url === '/api/chat' && req.method === 'POST') {
+  if (url === '/api/session' && req.method === 'POST') {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
-    let payload;
+    let payload = {};
+    if (chunks.length) {
+      try {
+        payload = JSON.parse(Buffer.concat(chunks).toString());
+      } catch {
+        return sendJSON(res, 400, { error: 'malformed request body' });
+      }
+    }
     try {
-      payload = JSON.parse(Buffer.concat(chunks).toString());
-    } catch {
-      return sendJSON(res, 400, { error: 'malformed request body' });
+      sendJSON(res, 200, await mintSecret(payload.model));
+    } catch (err) {
+      sendJSON(res, 502, { error: err?.message ?? String(err) });
     }
-    if (!payload.model || !Array.isArray(payload.messages)) {
-      return sendJSON(res, 400, { error: 'model and messages are required' });
-    }
-    return streamChat(req, res, payload);
+    return;
   }
 
   serveStatic(req, res);
 }).listen(PORT, () => {
   console.log(`slime orb → http://localhost:${PORT}`);
+  if (!KEY) console.warn('OPENAI_API_KEY is not set — /api/* will fail until it is.');
 });
