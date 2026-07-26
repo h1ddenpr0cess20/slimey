@@ -7,12 +7,19 @@ talks back, and the surface moves with whichever of you is making sound.
 ## Run
 
 ```sh
+git clone https://github.com/h1ddenpr0cess20/slimey
+cd slimey
 export OPENAI_API_KEY=sk-...
 npm start          # → http://localhost:5173
 ```
 
-No dependencies — the proxy is plain `node:http` and `fetch`, so Node 18+ is all
-it needs. Click the mic, allow the browser's microphone prompt, and start talking.
+No `npm install` — there are no dependencies. The proxy is plain `node:http` and
+`fetch`, so Node 18+ is all it needs. Click the mic, allow the browser's
+microphone prompt, and start talking.
+
+Open it on `localhost`. Microphone access needs a secure context, so serving this
+from a LAN address over plain HTTP will fail at the mic prompt — put it behind
+HTTPS if you want it off your own machine.
 
 | Variable | Default | Role |
 |---|---|---|
@@ -68,11 +75,12 @@ both are cheap here:
   than in browser code — which is already exactly where `sessionConfig()` lives,
   so this is a few lines in `server.js` and nothing in the page.
 
-**The plan: pick it up when gpt-live reaches the API and we upgrade onto it.**
-GPT-Live shipped to ChatGPT in July 2026 — full-duplex, so it listens and speaks
-at once instead of taking turns — but it's ChatGPT-only for now, with API access
-promised "soon" and no timeline. Tools and the transport swap land together then,
-rather than fitting search to a pipeline we're about to replace.
+**The plan: pick it up when GPT-Live reaches the API, and move onto that at the
+same time.** GPT-Live shipped to ChatGPT in July 2026 — full-duplex, so it listens
+and speaks at once instead of taking turns — but it's ChatGPT-only for now, with
+API access promised "soon" and no timeline. Tools and the transport swap may as
+well land together, rather than fitting search to a pipeline that's due to be
+replaced.
 
 ## Layout
 
@@ -98,7 +106,7 @@ while the model's track is live, `idle` when there is no call.
 ## The transport seam
 
 `session.js` exposes `on`, `start`, `stop`, `send`, `cancel`, `messages`,
-`connected`, `busy`, `state`, `model` — and emits:
+`connected`, `busy`, `state`, `model`, `voice` — and emits:
 
 ```
 'state'  listening | thinking | speaking | idle
