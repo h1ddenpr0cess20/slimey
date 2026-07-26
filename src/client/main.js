@@ -15,17 +15,15 @@ import { createSlimeOrb } from './orb/index.js';
 import { createVoiceSession } from './session/index.js';
 import { createControls } from './ui/controls.js';
 import { createHud } from './ui/hud.js';
+import { stripStageChrome } from './ui/stage.js';
 import { trackKeyboardInset } from './ui/viewport.js';
 
-const stage = document.querySelector('three-d-stage');
-const { THREE } = await stage.ready;
+// Before the await, not after — see ui/stage.js. The element is already
+// upgraded by the import above, and its toolbar would otherwise be on screen
+// for as long as three.js takes to load.
+const stage = stripStageChrome(document.querySelector('three-d-stage'));
 
-/* The stage ships with an export toolbar and an orbit hint for prototyping.
-   They occupy the corners the HUD now uses — drop these two lines to get the
-   OBJ/GLB download buttons back. */
-for (const sel of ['.toolbar', '.note']) {
-  stage.shadowRoot.querySelector(sel)?.style.setProperty('display', 'none');
-}
+const { THREE } = await stage.ready;
 
 const orb = createSlimeOrb({ stage, THREE });
 const session = createVoiceSession();
