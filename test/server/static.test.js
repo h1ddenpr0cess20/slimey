@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { before, describe, it } from 'node:test';
 
-import { createStaticMiddleware } from '../src/server/static.js';
-import { withServer } from './helpers/request.js';
+import { createStaticMiddleware } from '../../src/server/static.js';
+import { withServer } from '../helpers/request.js';
 
 describe('static hosting', () => {
   let middleware;

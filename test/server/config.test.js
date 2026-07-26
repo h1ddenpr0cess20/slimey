@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { KNOWN_VOICES, loadConfig } from '../src/server/config.js';
+import { KNOWN_VOICES, loadConfig } from '../../src/server/config.js';
 
 describe('loadConfig', () => {
   it('falls back to the published defaults on an empty environment', () => {

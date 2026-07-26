@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 
-import { createApiMiddleware } from '../src/server/api.js';
-import { loadConfig } from '../src/server/config.js';
-import { startOpenAIStub } from './helpers/openai-stub.js';
-import { withServer } from './helpers/request.js';
+import { createApiMiddleware } from '../../src/server/api.js';
+import { loadConfig } from '../../src/server/config.js';
+import { startOpenAIStub } from '../helpers/openai-stub.js';
+import { withServer } from '../helpers/request.js';
 
 async function api(env = {}, stubOptions) {
   const stub = await startOpenAIStub(stubOptions);

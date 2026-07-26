@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 
-import { loadConfig } from '../src/server/config.js';
-import { createOpenAIClient } from '../src/server/openai.js';
-import { SYSTEM } from '../src/server/persona.js';
-import { startOpenAIStub } from './helpers/openai-stub.js';
+import { loadConfig } from '../../src/server/config.js';
+import { createOpenAIClient } from '../../src/server/openai.js';
+import { SYSTEM } from '../../src/server/persona.js';
+import { startOpenAIStub } from '../helpers/openai-stub.js';
 
 async function clientFor(env = {}, stubOptions) {
   const stub = await startOpenAIStub(stubOptions);

@@ -1,0 +1,306 @@
+/**
+ * The call lifecycle, against a faked media stack.
+ *
+ * Covers the parts that are miserable to reach by hand: a denied microphone, a
+ * proxy that won't mint, a handshake that 4xxs, a call that drops mid-sentence,
+ * and the teardown ordering that decides whether stop() re-enters itself.
+ */
+
+import assert from 'node:assert/strict';
+import { afterEach, beforeEach, describe, it } from 'node:test';
+
+import { createVoiceSession } from '../../src/client/session/index.js';
+import { installMediaStack } from '../helpers/fake-rtc.js';
+
+describe('createVoiceSession', () => {
+  let env;
+  let session;
+  let events;
+
+  function record(s) {
+    events = [];
+    for (const name of ['state', 'text', 'user', 'level', 'pulse', 'done', 'error']) {
+      s.on(name, (payload) => events.push([name, payload]));
+    }
+  }
+
+  const of = (name) => events.filter(([e]) => e === name).map(([, p]) => p);
+  const peer = () => env.peers.at(-1);
+
+  /** start() resolves once the SDP answer is applied; the data channel opening
+   *  is a separate event, and it is what `connected` actually waits on. */
+  async function dial() {
+    await session.start();
+    peer().open();
+  }
+
+  beforeEach(() => {
+    env = installMediaStack();
+    session = createVoiceSession();
+    record(session);
+  });
+
+  afterEach(() => {
+    session.stop();
+    env.restore();
+  });
+
+  describe('starting', () => {
+    it('is idle and disconnected before anything happens', () => {
+      assert.equal(session.state, 'idle');
+      assert.equal(session.connected, false);
+      assert.equal(session.busy, false);
+    });
+
+    it('asks for the microphone before spending a token', async () => {
+      env.secretStatus = 500;
+      await session.start();
+      // The mic prompt comes first, so a refusal costs nothing.
+      assert.equal(env.micTracks.length, 1);
+      assert.equal(env.secretRequests.length, 1);
+    });
+
+    it('requests echo cancellation and noise suppression', async () => {
+      await dial();
+      assert.deepEqual(env.lastConstraints, {
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+    });
+
+    it('sends the chosen model and voice to the proxy', async () => {
+      session.model = 'gpt-realtime-mini';
+      session.voice = 'cedar';
+      await dial();
+      assert.deepEqual(env.secretRequests.at(-1), { model: 'gpt-realtime-mini', voice: 'cedar' });
+    });
+
+    it('lets the proxy overrule both', async () => {
+      session.model = 'gpt-realtime-mini';
+      session.voice = 'not-a-voice';
+      env.secret = { value: 'ek_test', model: 'gpt-realtime-2.1', voice: 'ballad' };
+
+      await dial();
+
+      assert.equal(session.model, 'gpt-realtime-2.1');
+      assert.equal(session.voice, 'ballad');
+    });
+
+    it('posts the SDP offer to OpenAI with the ephemeral secret, never the key', async () => {
+      await dial();
+      const sdp = env.sdpRequests.at(-1);
+      assert.match(sdp.url, /realtime\/calls$/);
+      assert.equal(sdp.init.headers.authorization, 'Bearer ek_test');
+      assert.equal(sdp.init.headers['content-type'], 'application/sdp');
+      assert.equal(sdp.init.body, 'v=0 fake offer');
+    });
+
+    it('adds the mic track and opens the events channel', async () => {
+      await dial();
+      assert.equal(peer().tracks.length, 1);
+      assert.ok(peer().channel);
+      assert.equal(session.connected, true);
+      assert.equal(session.state, 'listening');
+    });
+
+    it('starts metering once the call is up', async () => {
+      await dial();
+      assert.ok(env.pendingFrames.size > 0);
+    });
+
+    it('ignores a second start while one is already connected', async () => {
+      await dial();
+      await session.start();
+      assert.equal(env.peers.length, 1);
+    });
+  });
+
+  describe('when starting fails', () => {
+    it('reports a denied microphone and stays idle', async () => {
+      env.restore();
+      env = installMediaStack({ micRejects: 'Permission denied' });
+      session = createVoiceSession();
+      record(session);
+
+      await session.start();
+
+      assert.deepEqual(of('error'), [{ message: 'Permission denied' }]);
+      assert.equal(session.connected, false);
+      assert.equal(session.state, 'idle');
+    });
+
+    it('reports a proxy that will not mint, and releases the mic', async () => {
+      env.secretStatus = 502;
+      await session.start();
+
+      assert.deepEqual(of('error'), [{ message: 'mint failed' }]);
+      assert.ok(env.micTracks.every((t) => t.stopped), 'the mic must not stay hot');
+      assert.equal(session.state, 'idle');
+    });
+
+    it('reports a rejected handshake', async () => {
+      env.restore();
+      env = installMediaStack({ sdpStatus: 401 });
+      session = createVoiceSession();
+      record(session);
+
+      await session.start();
+
+      assert.match(of('error')[0].message, /realtime handshake failed \(401\)/);
+      assert.equal(session.connected, false);
+    });
+
+    it('tears the whole stack down after a failure', async () => {
+      env.secretStatus = 502;
+      await session.start();
+
+      assert.ok(env.audioContexts.every((c) => c.closed) || env.audioContexts.length === 0);
+      assert.equal(env.pendingFrames.size, 0, 'the meter must not keep spinning');
+    });
+  });
+
+  describe('a live call', () => {
+    beforeEach(() => dial());
+
+    it('routes server events through to the orb vocabulary', () => {
+      peer().channel.deliver({ type: 'response.created' });
+      peer().channel.deliver({ type: 'response.output_audio_transcript.delta', delta: 'Bloop!' });
+
+      assert.deepEqual(of('text'), ['Bloop!']);
+      assert.deepEqual(of('pulse'), [0.32]);
+      assert.equal(session.state, 'speaking');
+    });
+
+    it('shrugs off a frame it cannot parse', () => {
+      assert.doesNotThrow(() => peer().channel.deliverRaw('<not json>'));
+      assert.deepEqual(of('error'), []);
+    });
+
+    it('keeps a transcript of both sides', () => {
+      peer().channel.deliver({
+        type: 'conversation.item.input_audio_transcription.completed',
+        transcript: 'what are you?',
+      });
+      peer().channel.deliver({ type: 'response.output_text.delta', delta: 'A slime!' });
+      peer().channel.deliver({ type: 'response.done', response: {} });
+
+      assert.deepEqual(session.messages, [
+        { role: 'user', content: 'what are you?' },
+        { role: 'assistant', content: 'A slime!' },
+      ]);
+    });
+
+    it('emits a level every frame', () => {
+      const before = of('level').length;
+      env.tick();
+      assert.ok(of('level').length > before);
+    });
+
+    describe('typed input', () => {
+      it('sends the item and asks for a response', () => {
+        session.send('  hello slime  ');
+        assert.deepEqual(peer().channel.sent, [
+          {
+            type: 'conversation.item.create',
+            item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hello slime' }] },
+          },
+          { type: 'response.create' },
+        ]);
+        assert.equal(session.state, 'thinking');
+        assert.deepEqual(session.messages, [{ role: 'user', content: 'hello slime' }]);
+      });
+
+      it('refuses empty text', () => {
+        session.send('   ');
+        assert.deepEqual(peer().channel.sent, []);
+        assert.deepEqual(session.messages, []);
+      });
+    });
+
+    describe('cancel', () => {
+      it('does nothing when the slime is not talking', () => {
+        session.cancel();
+        assert.deepEqual(peer().channel.sent, []);
+      });
+
+      it('sends response.cancel mid-answer', () => {
+        peer().channel.deliver({ type: 'response.created' });
+        session.cancel();
+        assert.deepEqual(peer().channel.sent, [{ type: 'response.cancel' }]);
+      });
+    });
+  });
+
+  describe('stopping', () => {
+    beforeEach(() => dial());
+
+    it('releases the mic, the audio context, the peer and the meter', () => {
+      session.stop();
+
+      assert.ok(env.micTracks.every((t) => t.stopped), 'mic still hot');
+      assert.ok(env.audioContexts.every((c) => c.closed), 'audio context still open');
+      assert.ok(peer().closed, 'peer connection still open');
+      assert.ok(peer().channel.closed, 'data channel still open');
+      assert.equal(env.pendingFrames.size, 0, 'meter still running');
+    });
+
+    it('settles the orb: level zero, state idle', () => {
+      session.stop();
+      assert.equal(of('level').at(-1), 0);
+      assert.equal(session.state, 'idle');
+      assert.equal(session.connected, false);
+    });
+
+    it('does not re-enter when closing the peer fires a state change', () => {
+      // stop() nulls the call before closing it, so the connectionstatechange
+      // listener can tell our own hangup from a dropped connection.
+      session.stop();
+      peer().drop('closed');
+      assert.deepEqual(of('error'), [], 'our own hangup must not look like a failure');
+    });
+
+    it('is safe to call twice', () => {
+      session.stop();
+      assert.doesNotThrow(() => session.stop());
+    });
+
+    it('forgets the in-flight response, so the next call starts clean', () => {
+      peer().channel.deliver({ type: 'response.created' });
+      assert.equal(session.busy, true);
+      session.stop();
+      assert.equal(session.busy, false);
+    });
+  });
+
+  describe('a dropped call', () => {
+    beforeEach(() => dial());
+
+    it('reports the drop and tears down', () => {
+      peer().drop('failed');
+
+      assert.deepEqual(of('error'), [{ message: 'the call dropped' }]);
+      assert.equal(session.state, 'idle');
+      assert.ok(env.micTracks.every((t) => t.stopped));
+    });
+
+    it('tears down quietly when the far end simply disconnects', () => {
+      peer().drop('disconnected');
+      assert.deepEqual(of('error'), []);
+      assert.equal(session.state, 'idle');
+    });
+  });
+
+  describe('redial', () => {
+    it('carries the newly picked voice into the next call', async () => {
+      await dial();
+      session.stop();
+
+      session.voice = 'cedar';
+      env.secret = { value: 'ek_test', model: 'gpt-realtime-2.1', voice: 'cedar' };
+      await dial();
+
+      assert.equal(env.secretRequests.at(-1).voice, 'cedar');
+      assert.equal(session.voice, 'cedar');
+      assert.equal(env.peers.length, 2);
+    });
+  });
+});
