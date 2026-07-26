@@ -44,10 +44,11 @@ function amplitude(analyser, buffer) {
   return Math.min(1, Math.sqrt(sum / buffer.length) * 7);
 }
 
-export function createVoiceSession({ endpoint = '/api/session', model } = {}) {
+export function createVoiceSession({ endpoint = '/api/session', model, voice } = {}) {
   const { on, emit } = createEmitter();
   const messages = [];
   let current = model;
+  let currentVoice = voice;
 
   let pc = null;
   let channel = null;
@@ -177,11 +178,14 @@ export function createVoiceSession({ endpoint = '/api/session', model } = {}) {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ model: current }),
+        body: JSON.stringify({ model: current, voice: currentVoice }),
       });
       const secret = await res.json();
       if (!res.ok) throw new Error(secret.error ?? `proxy returned ${res.status}`);
+      // The proxy has the last word on both — it falls back to its own defaults
+      // for anything it doesn't recognise.
       current = secret.model ?? current;
+      currentVoice = secret.voice ?? currentVoice;
 
       pc = new RTCPeerConnection();
       audio = new AudioContext();
@@ -274,6 +278,10 @@ export function createVoiceSession({ endpoint = '/api/session', model } = {}) {
     get state() { return state; },
     get model() { return current; },
     set model(next) { current = next; },
+    /** Both are pinned into the client secret, so changing either only takes
+     *  effect on the next call — the page redials. */
+    get voice() { return currentVoice; },
+    set voice(next) { currentVoice = next; },
     /** Manual barge-in — the VAD covers the spoken case on its own. */
     cancel() {
       if (responding && channel?.readyState === 'open') {

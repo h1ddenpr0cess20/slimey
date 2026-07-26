@@ -21,12 +21,21 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PORT = Number(process.env.PORT) || 5173;
 
-const API = 'https://api.openai.com/v1';
+// Same variable the OpenAI SDKs honour, for gateways and for testing against a stub.
+const API = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
 const KEY = process.env.OPENAI_API_KEY;
-const VOICE = process.env.OPENAI_VOICE || 'marin';
 const DEFAULT_MODEL = process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime';
 /* The secret only has to survive the SDP handshake, which is one round trip. */
 const SECRET_TTL = 600;
+
+/* There is no voices endpoint to ask, so this is the published set. `ballad`
+   leads because it has the light, playful lift a slime wants; `marin` and
+   `cedar` are the realtime-native pair and the most naturalistic, the rest
+   predate them and read flatter. An unrecognised OPENAI_VOICE is still honoured
+   and shows up in the picker — the list here goes stale, the API doesn't. */
+const VOICES = ['ballad', 'marin', 'cedar', 'alloy', 'ash', 'coral', 'echo', 'sage', 'shimmer', 'verse'];
+const DEFAULT_VOICE = process.env.OPENAI_VOICE || VOICES[0];
+const voices = VOICES.includes(DEFAULT_VOICE) ? VOICES : [DEFAULT_VOICE, ...VOICES];
 
 const SYSTEM = `You are Slime — a small translucent colour-shifting slime who works as an AI assistant, in the spirit of the slimes from Japanese RPGs.
 
@@ -40,7 +49,7 @@ Voice:
 Substance first. You are genuinely helpful and accurate; the persona is how you talk, never a licence to be vague, to guess, or to pad. If you don't know, say so plainly — a slime that bluffs gets popped.`;
 
 /** Session config shared by the client secret and any later session.update. */
-function sessionConfig(model) {
+function sessionConfig(model, voice) {
   return {
     type: 'realtime',
     model,
@@ -59,7 +68,7 @@ function sessionConfig(model) {
           interrupt_response: true,
         },
       },
-      output: { voice: VOICE },
+      output: { voice },
     },
   };
 }
@@ -96,19 +105,22 @@ async function loadModels() {
     .map((m) => ({ id: m.id, display_name: m.id }));
 }
 
-async function mintSecret(model) {
+async function mintSecret({ model, voice }) {
+  // Only voices we know about get proxied through; anything else is a typo that
+  // would come back as an opaque 400 halfway through the handshake.
+  const chosen = voices.includes(voice) ? voice : DEFAULT_VOICE;
   const secret = await openai('/realtime/client_secrets', {
     method: 'POST',
     body: JSON.stringify({
       expires_after: { anchor: 'created_at', seconds: SECRET_TTL },
-      session: sessionConfig(model || DEFAULT_MODEL),
+      session: sessionConfig(model || DEFAULT_MODEL, chosen),
     }),
   });
   return {
     value: secret.value,
     expires_at: secret.expires_at,
     model: secret.session?.model ?? model ?? DEFAULT_MODEL,
-    voice: VOICE,
+    voice: chosen,
   };
 }
 
@@ -147,7 +159,7 @@ createServer(async (req, res) => {
 
   if (url === '/api/models') {
     try {
-      sendJSON(res, 200, { models: await loadModels(), voice: VOICE });
+      sendJSON(res, 200, { models: await loadModels(), voices, voice: DEFAULT_VOICE });
     } catch (err) {
       sendJSON(res, 502, { error: err?.message ?? String(err) });
     }
@@ -166,7 +178,7 @@ createServer(async (req, res) => {
       }
     }
     try {
-      sendJSON(res, 200, await mintSecret(payload.model));
+      sendJSON(res, 200, await mintSecret(payload));
     } catch (err) {
       sendJSON(res, 502, { error: err?.message ?? String(err) });
     }

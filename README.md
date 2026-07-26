@@ -17,7 +17,7 @@ it needs. Click the mic, allow the browser's microphone prompt, and start talkin
 | Variable | Default | Role |
 |---|---|---|
 | `OPENAI_API_KEY` | — | Required. Stays in the Node process. |
-| `OPENAI_VOICE` | `marin` | Any realtime voice (`marin`, `cedar`, `alloy`, `verse`, …) |
+| `OPENAI_VOICE` | `ballad` | Which voice the picker opens on (`ballad`, `marin`, `cedar`, `verse`, …) |
 | `OPENAI_REALTIME_MODEL` | `gpt-realtime` | Preselected in the picker when the key can reach it |
 | `PORT` | `5173` | |
 
@@ -28,9 +28,9 @@ access on first load.
 
 The API key never reaches the browser, but the audio never reaches the proxy either:
 
-1. The page asks `POST /api/session` for a client secret. The proxy mints one from
-   `/v1/realtime/client_secrets` with the persona, voice and turn detection already
-   attached, valid for ten minutes.
+1. The page asks `POST /api/session` for a client secret, naming the model and
+   voice it wants. The proxy mints one from `/v1/realtime/client_secrets` with the
+   persona, voice and turn detection already attached, valid for ten minutes.
 2. The page opens an `RTCPeerConnection`, adds the mic track, and POSTs its SDP
    offer straight to `/v1/realtime/calls` with that secret.
 3. Audio flows browser ↔ OpenAI over WebRTC. Events flow over an `oai-events`
@@ -39,6 +39,11 @@ The API key never reaches the browser, but the audio never reaches the proxy eit
 Turn-taking is server-side semantic VAD, so barge-in is free: speak over the slime
 and the model truncates its own playback. `Escape` cancels the current response
 for the typed path.
+
+Both pickers are pinned into that secret, so changing the model or the voice
+mid-call hangs up and dials again — the conversation doesn't carry over, since the
+new voice has no memory of what the old one said. `OPENAI_BASE_URL` redirects the
+proxy at a gateway or a stub if you need one.
 
 ## Layout
 

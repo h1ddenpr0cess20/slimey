@@ -113,8 +113,8 @@
   #mic[data-busy] { opacity: .5; cursor: default; }
   #mic svg { display: block; }
 
-  #model {
-    appearance: none; cursor: pointer; flex: none; max-width: 190px;
+  #model, #voice {
+    appearance: none; cursor: pointer; flex: none; max-width: 168px;
     padding: 9px 26px 9px 12px; border-radius: 999px;
     background: rgba(255,255,255,.05) no-repeat right 11px center;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0h8L4 5z' fill='rgba(255,255,255,.45)'/%3E%3C/svg%3E");
@@ -122,9 +122,11 @@
     color: rgba(255,255,255,.62);
     text-overflow: ellipsis; transition: color .2s, border-color .2s;
   }
-  #model:hover { color: rgba(255,255,255,.9); border-color: rgba(255,255,255,.28); }
-  #model:focus { outline: none; border-color: rgba(255,255,255,.4); }
-  #model option { background: #12141c; color: #eef1f5; }
+  #model:hover, #voice:hover { color: rgba(255,255,255,.9); border-color: rgba(255,255,255,.28); }
+  #model:focus, #voice:focus { outline: none; border-color: rgba(255,255,255,.4); }
+  #model option, #voice option { background: #12141c; color: #eef1f5; }
+  /* Voice names are one short word — it never needs the model's width. */
+  #voice { max-width: 112px; }
 
   #send {
     appearance: none; cursor: pointer; flex: none;
@@ -155,6 +157,7 @@
   </button>
   <input id="prompt" type="text" autocomplete="off" disabled placeholder="Tap the mic and talk to the slime…" aria-label="Message">
   <select id="model" class="chip" aria-label="Model"><option>loading…</option></select>
+  <select id="voice" class="chip" aria-label="Voice"><option>voice</option></select>
   <button id="send" type="submit" aria-label="Send">
     <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
       <path d="M7.5 12.5V2.5M7.5 2.5L3 7M7.5 2.5L12 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
@@ -185,6 +188,7 @@ const captionEl = document.querySelector('#caption');
 const youEl = document.querySelector('#you');
 const promptEl = document.querySelector('#prompt');
 const modelEl = document.querySelector('#model');
+const voiceEl = document.querySelector('#voice');
 const sendEl = document.querySelector('#send');
 const micEl = document.querySelector('#mic');
 
@@ -279,21 +283,32 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && session.busy) session.cancel();
 });
 
-modelEl.addEventListener('change', async () => {
+/* Model and voice are both baked into the client secret, so changing either
+   mid-call means hanging up and dialling again. The conversation doesn't
+   survive that — which is the honest behaviour, since the new voice has no
+   memory of what the old one said. */
+function redial() {
+  if (!session.connected) return;
+  session.stop();
+  micEl.click();
+}
+
+modelEl.addEventListener('change', () => {
   session.model = modelEl.value;
-  // The model is baked into the client secret, so a change means a new call.
-  if (session.connected) {
-    session.stop();
-    micEl.click();
-  }
+  redial();
 });
 
-/* --- model list, live from /v1/models ------------------------------------ */
+voiceEl.addEventListener('change', () => {
+  session.voice = voiceEl.value;
+  redial();
+});
+
+/* --- model and voice lists, from the proxy -------------------------------- */
 
 const PREFERRED = 'gpt-realtime';
 try {
   const res = await fetch('/api/models');
-  const { models, error } = await res.json();
+  const { models, voices, voice, error } = await res.json();
   if (!res.ok) throw new Error(error ?? `model list unavailable (${res.status})`);
   if (!models.length) throw new Error('this key can’t reach any realtime model');
 
@@ -307,8 +322,13 @@ try {
   const selected = models.some((m) => m.id === PREFERRED) ? PREFERRED : models[0]?.id;
   modelEl.value = selected;
   session.model = selected;
+
+  voiceEl.replaceChildren(...voices.map((v) => new Option(v, v)));
+  voiceEl.value = voice;
+  session.voice = voice;
 } catch (err) {
   modelEl.replaceChildren(new Option('unavailable', ''));
+  voiceEl.replaceChildren(new Option('—', ''));
   micEl.dataset.busy = '';
   captionEl.classList.add('visible', 'error');
   captionEl.textContent = `${err.message} — is the proxy running? (npm start)`;
