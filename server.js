@@ -24,7 +24,7 @@ const PORT = Number(process.env.PORT) || 5173;
 // Same variable the OpenAI SDKs honour, for gateways and for testing against a stub.
 const API = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
 const KEY = process.env.OPENAI_API_KEY;
-const DEFAULT_MODEL = process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime';
+const DEFAULT_MODEL = process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-2.1';
 /* The secret only has to survive the SDP handshake, which is one round trip. */
 const SECRET_TTL = 600;
 
@@ -51,10 +51,10 @@ Substance first. You are genuinely helpful and accurate; the persona is how you 
 /** Session config shared by the client secret and any later session.update.
  *
  *  No `tools` here on purpose — the slime answers from what the model knows.
- *  Web search would have to be a hand-rolled function tool today, since the
- *  hosted one is Responses-API only. Revisit when gpt-live is available and we
- *  upgrade to it; if it exposes hosted tools to a live session, this is where
- *  they go. See the README. */
+ *  When that changes, this is where they go: function tools we execute, or a
+ *  remote MCP server the Realtime API calls for us. Credentialed MCP config has
+ *  to be minted here rather than sent from the page. Planned for the gpt-live
+ *  upgrade, once that reaches the API. See the README. */
 function sessionConfig(model, voice) {
   return {
     type: 'realtime',
@@ -95,8 +95,13 @@ async function openai(path, init = {}) {
   return body;
 }
 
-/* `gpt-realtime` first when it's there, then everything else the key can see —
-   dated snapshots and the mini/preview tiers sort under it. */
+/* Not every `*realtime*` model holds a conversation: the translate and whisper
+   tiers are streaming translation and speech-to-text, and picking one would
+   leave the orb listening to a slime that can't answer. */
+const NOT_CONVERSATIONAL = /translate|whisper|transcribe|tts/;
+
+/* The default first, then everything else the key can see — dated snapshots and
+   the older preview tiers sort under it. */
 function rankModel(id) {
   if (id === DEFAULT_MODEL) return 0;
   if (id.includes('preview')) return 2;
@@ -106,7 +111,7 @@ function rankModel(id) {
 async function loadModels() {
   const { data } = await openai('/models');
   return data
-    .filter((m) => m.id.includes('realtime'))
+    .filter((m) => m.id.includes('realtime') && !NOT_CONVERSATIONAL.test(m.id))
     .sort((a, b) => rankModel(a.id) - rankModel(b.id) || a.id.localeCompare(b.id))
     .map((m) => ({ id: m.id, display_name: m.id }));
 }
@@ -165,7 +170,12 @@ createServer(async (req, res) => {
 
   if (url === '/api/models') {
     try {
-      sendJSON(res, 200, { models: await loadModels(), voices, voice: DEFAULT_VOICE });
+      sendJSON(res, 200, {
+        models: await loadModels(),
+        model: DEFAULT_MODEL,
+        voices,
+        voice: DEFAULT_VOICE,
+      });
     } catch (err) {
       sendJSON(res, 502, { error: err?.message ?? String(err) });
     }

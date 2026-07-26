@@ -18,7 +18,7 @@ it needs. Click the mic, allow the browser's microphone prompt, and start talkin
 |---|---|---|
 | `OPENAI_API_KEY` | — | Required. Stays in the Node process. |
 | `OPENAI_VOICE` | `ballad` | Which voice the picker opens on (`ballad`, `marin`, `cedar`, `verse`, …) |
-| `OPENAI_REALTIME_MODEL` | `gpt-realtime` | Preselected in the picker when the key can reach it |
+| `OPENAI_REALTIME_MODEL` | `gpt-realtime-2.1` | Preselected in the picker when the key can reach it |
 | `PORT` | `5173` | |
 
 `three.js` loads from unpkg via the pinned import map, so the page needs network
@@ -40,6 +40,11 @@ Turn-taking is server-side semantic VAD, so barge-in is free: speak over the sli
 and the model truncates its own playback. `Escape` cancels the current response
 for the typed path.
 
+The picker lists every realtime model the key can reach, minus the ones that
+can't hold a conversation — the `translate` and `whisper` tiers are streaming
+translation and speech-to-text, and choosing one would leave you talking to a
+slime with nothing to say back.
+
 Both pickers are pinned into that secret, so changing the model or the voice
 mid-call hangs up and dials again — the conversation doesn't carry over, since the
 new voice has no memory of what the old one said. `OPENAI_BASE_URL` redirects the
@@ -51,16 +56,23 @@ The slime has no tools. It answers from what the model already knows: no web
 search, no retrieval, no function calls. Ask it about this morning and it should
 tell you it doesn't know, which is the behaviour the system prompt asks for.
 
-That's deliberate for now. A realtime session can only call functions you define
-yourself — OpenAI's hosted web search is a Responses API tool and isn't reachable
-from a realtime call — so wiring search today means declaring the tool, handling
-`response.function_call_arguments.done` on the data channel, running the query
-server-side, and posting a `function_call_output` back. Doable, but it's a real
-subsystem and it would need a search backend chosen for it.
+That's a choice, not a limitation. A realtime session takes tools two ways, and
+both are cheap here:
 
-**The plan: pick this up when gpt-live is available and we move onto it.** If it
-brings hosted tools to a live session, most of the above collapses into session
-config and the work is worth doing then rather than twice.
+- **Function tools**, which we execute — declare them in `session.tools`, then
+  handle `response.function_call_arguments.done` on the data channel and post a
+  `function_call_output` back.
+- **Remote MCP servers**, which the Realtime API executes itself. Point
+  `session.tools` at a server URL and its tools are live. Anything needing auth
+  headers belongs in the server-side `/v1/realtime/client_secrets` payload rather
+  than in browser code — which is already exactly where `sessionConfig()` lives,
+  so this is a few lines in `server.js` and nothing in the page.
+
+**The plan: pick it up when gpt-live reaches the API and we upgrade onto it.**
+GPT-Live shipped to ChatGPT in July 2026 — full-duplex, so it listens and speaks
+at once instead of taking turns — but it's ChatGPT-only for now, with API access
+promised "soon" and no timeline. Tools and the transport swap land together then,
+rather than fitting search to a pipeline we're about to replace.
 
 ## Layout
 

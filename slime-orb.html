@@ -305,10 +305,11 @@ voiceEl.addEventListener('change', () => {
 
 /* --- model and voice lists, from the proxy -------------------------------- */
 
-const PREFERRED = 'gpt-realtime';
 try {
   const res = await fetch('/api/models');
-  const { models, voices, voice, error } = await res.json();
+  // The proxy names the defaults for both pickers; it owns that choice, and the
+  // env vars that override it.
+  const { models, model, voices, voice, error } = await res.json();
   if (!res.ok) throw new Error(error ?? `model list unavailable (${res.status})`);
   if (!models.length) throw new Error('this key can’t reach any realtime model');
 
@@ -319,7 +320,7 @@ try {
     return option;
   }));
 
-  const selected = models.some((m) => m.id === PREFERRED) ? PREFERRED : models[0]?.id;
+  const selected = models.some((m) => m.id === model) ? model : models[0].id;
   modelEl.value = selected;
   session.model = selected;
 
