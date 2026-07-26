@@ -123,4 +123,7 @@ try {
 window.addEventListener('pagehide', () => session.stop());
 
 controls.sync();
-controls.focus();
+
+// Focusing the mic saves a keyboard user a tab stop. On a phone it just leaves
+// a focus ring on the control everyone was going to tap anyway.
+if (window.matchMedia('(pointer: fine)').matches) controls.focus();

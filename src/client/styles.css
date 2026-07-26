@@ -148,6 +148,13 @@ three-d-stage {
   background: rgba(255, 255, 255, .08);
 }
 
+/* The UA default is a bright ring that has nothing to do with this palette.
+   Keyboard users still get an unmissable one; pointer users get nothing. */
+#composer :focus-visible {
+  outline: 2px solid rgba(255, 255, 255, .55);
+  outline-offset: 2px;
+}
+
 /* Wide enough for five controls in a row: the pickers join the flex line. */
 #options { display: contents; }
 #send { order: 1; }
