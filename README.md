@@ -1,21 +1,44 @@
 # Slime Orb
 
-An AI assistant avatar: a translucent colour-shifting slime whose deformation,
-glow and colour drift are driven by a live Claude Messages stream.
+A voice agent with a face: a translucent colour-shifting slime whose deformation,
+glow and colour drift are driven by a live OpenAI Realtime call. You talk, it
+talks back, and the surface moves with whichever of you is making sound.
 
 ## Run
 
 ```sh
-npm install
+export OPENAI_API_KEY=sk-...
 npm start          # → http://localhost:5173
 ```
 
-Credentials resolve the way every Anthropic SDK resolves them — `ANTHROPIC_API_KEY`,
-`ANTHROPIC_AUTH_TOKEN`, or an `ant auth login` profile. Nothing else to configure.
-The key stays in the Node process; the browser only ever talks to the proxy.
+No dependencies — the proxy is plain `node:http` and `fetch`, so Node 18+ is all
+it needs. Click the mic, allow the browser's microphone prompt, and start talking.
+
+| Variable | Default | Role |
+|---|---|---|
+| `OPENAI_API_KEY` | — | Required. Stays in the Node process. |
+| `OPENAI_VOICE` | `marin` | Any realtime voice (`marin`, `cedar`, `alloy`, `verse`, …) |
+| `OPENAI_REALTIME_MODEL` | `gpt-realtime` | Preselected in the picker when the key can reach it |
+| `PORT` | `5173` | |
 
 `three.js` loads from unpkg via the pinned import map, so the page needs network
 access on first load.
+
+## How the call is wired
+
+The API key never reaches the browser, but the audio never reaches the proxy either:
+
+1. The page asks `POST /api/session` for a client secret. The proxy mints one from
+   `/v1/realtime/client_secrets` with the persona, voice and turn detection already
+   attached, valid for ten minutes.
+2. The page opens an `RTCPeerConnection`, adds the mic track, and POSTs its SDP
+   offer straight to `/v1/realtime/calls` with that secret.
+3. Audio flows browser ↔ OpenAI over WebRTC. Events flow over an `oai-events`
+   data channel alongside it.
+
+Turn-taking is server-side semantic VAD, so barge-in is free: speak over the slime
+and the model truncates its own playback. `Escape` cancels the current response
+for the typed path.
 
 ## Layout
 
@@ -23,8 +46,8 @@ access on first load.
 |---|---|
 | `slime-orb.html` | Markup, styles, and the wiring between session and orb |
 | `orb.js` | The orb. Owns all geometry and animation; knows nothing about transports |
-| `session.js` | Conversation transport. Owns history, emits transport-agnostic events |
-| `server.js` | Static host + `/api/models` + `/api/chat` (SSE) |
+| `session.js` | The call. Owns the peer connection, emits transport-agnostic events |
+| `server.js` | Static host + `/api/models` + `/api/session` |
 | `three-d-stage.js` | Unmodified starter component (renderer, lighting, camera, controls) |
 
 ## States
@@ -34,9 +57,26 @@ amplitude, lobe speed, hue drift, breathing, spin, core glow and rim halo. The o
 eases between them, so transitions read as the same creature changing mood rather
 than a cut.
 
-## Swapping in voice
+The call maps onto them directly: `listening` from `speech_started` and between
+turns, `thinking` from `speech_stopped` until the first audio frame, `speaking`
+while the model's track is live, `idle` when there is no call.
 
-The orb takes audio-shaped input already, which is the whole point of the split:
+## The transport seam
+
+`session.js` exposes `on`, `start`, `stop`, `send`, `cancel`, `messages`,
+`connected`, `busy`, `state`, `model` — and emits:
+
+```
+'state'  listening | thinking | speaking | idle
+'text'   a chunk of assistant transcript
+'user'   a completed transcript of what the person said
+'level'  0..1 sustained amplitude, per frame
+'pulse'  0..1 transient, one per discrete event
+'done'   { model, usage }
+'error'  { message }
+```
+
+The orb takes audio-shaped input, which is the whole point of the split:
 
 ```js
 orb.setState('speaking')  // idle | listening | thinking | speaking
@@ -44,18 +84,10 @@ orb.setLevel(0.62)        // sustained amplitude 0..1, sampled per frame
 orb.pulse(0.4)            // transient impulse 0..1, one per discrete event
 ```
 
-Text drives `pulse`, because tokens are discrete. Audio drives `setLevel`, because
-waveforms are continuous. Both land on the same internal energy value, so the
-surface deforms identically either way.
+Both land on the same internal energy value. `setLevel` carries the voice —
+two `AnalyserNode`s, one on the mic and one on the model's track, read per frame
+and smoothed with a fast attack and a slow release. `pulse` is left for the beats
+where a turn changes hands, so the wobble punctuates instead of strobing.
 
-To go voice, write a `createVoiceSession()` with the same surface as
-`createTextSession()` — `on`, `send`, `cancel`, `messages`, `busy`, `model` — plus
-`start()` / `stop()`, and emit:
-
-- `'level'` from a mic `AnalyserNode` while listening, and from the TTS
-  `AnalyserNode` while speaking
-- `'state'`, `'text'`, `'done'`, `'error'` exactly as the text session does
-
-`slime-orb.html` already subscribes to `'level'`, and `session.cancel()` already
-aborts the proxy's upstream request, which is the barge-in path. The wiring block
-in the page should not need to change.
+Swapping providers means writing a different `create*Session()` with that surface.
+The page's wiring block and the orb do not change.
