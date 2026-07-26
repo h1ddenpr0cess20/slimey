@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Slime Orb — AI assistant avatar</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.184.0/build/three.module.js",
+    "three/addons/controls/OrbitControls.js": "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js",
+    "three/addons/exporters/OBJExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js",
+    "three/addons/exporters/GLTFExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js"
+  },
+  "integrity": {
+    "https://unpkg.com/three@0.184.0/build/three.module.js": "sha384-8FCZ1eVO6it4+pbec2aDtnTrwjWXZLJRC+MAGCIPDgsYnUrl/E0A2YlF8ioMKI/J",
+    "https://unpkg.com/three@0.184.0/build/three.core.js": "sha384-dw2ooPewaEIrAgl6oFDBmmBWCE9oW9LxRGcfwZ0hLvEprzo202wXl7vCYHRlSnOT",
+    "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js": "sha384-4rziNxOBZKQ69i+w+f89KJ55TCYquwchVbByQwmaOeIOXdOU2PLDn3kOfXHwIJC9",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js": "sha384-nbwtoZENJD3Vq+ACK0CuGQdPMuDWHkamC2KJD70EV5nfg6jQjfppKOea07YJN+N3",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js": "sha384-VofkvpG6HERhFCYbsUOHeNXBCqID2nfqkQqnVzE1jc/oPcz+qJ13ADdXH08hE+cQ"
+  }
+}
+</script>
+<style>
+  html, body { margin: 0; height: 100%; background: #07080c; overflow: hidden; }
+  three-d-stage:not(:defined) { visibility: hidden; }
+  three-d-stage { display: block; width: 100vw; height: 100vh; }
+
+  /* Shared with the original state row: mono, uppercase, wide tracking. */
+  .chip {
+    font: 500 11px/1 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: .12em; text-transform: uppercase;
+  }
+
+  #status {
+    position: fixed; left: 24px; bottom: 26px; z-index: 5;
+    display: flex; align-items: center; gap: 8px;
+    color: rgba(255,255,255,.4); transition: color .3s;
+  }
+  #status::before {
+    content: ""; width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; opacity: .9;
+  }
+  #status[data-state="listening"] { color: #37c8f7; }
+  #status[data-state="thinking"]  { color: #8f7bff; }
+  #status[data-state="speaking"]  { color: #38f2b6; }
+
+  /* Caption sits above the input, centred on the orb, and fades when spent. */
+  #caption {
+    position: fixed; left: 50%; bottom: 108px; transform: translateX(-50%);
+    z-index: 5; width: min(620px, calc(100vw - 96px));
+    max-height: 40vh; overflow-y: auto;
+    font: 400 16px/1.65 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: rgba(255,255,255,.92); text-align: center; text-wrap: pretty;
+    text-shadow: 0 1px 24px rgba(7,8,12,.95), 0 1px 4px rgba(7,8,12,.9);
+    opacity: 0; transition: opacity .45s; pointer-events: none;
+    scrollbar-width: none;
+  }
+  #caption::-webkit-scrollbar { display: none; }
+  #caption.visible { opacity: 1; pointer-events: auto; }
+  #caption.error { color: #ff9b9b; }
+
+  #composer {
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+    z-index: 5; display: flex; align-items: center; gap: 10px;
+    width: min(620px, calc(100vw - 96px));
+    padding: 7px 7px 7px 16px; border-radius: 999px;
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.14);
+    backdrop-filter: blur(12px);
+    transition: border-color .25s, background .25s;
+  }
+  #composer:focus-within {
+    border-color: rgba(255,255,255,.32);
+    background: rgba(255,255,255,.08);
+  }
+
+  #prompt {
+    flex: 1; min-width: 0; appearance: none; background: none; border: 0;
+    color: #eef1f5; font: 400 15px/1.4 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  #prompt::placeholder { color: rgba(255,255,255,.34); }
+  #prompt:focus { outline: none; }
+
+  #model {
+    appearance: none; cursor: pointer; flex: none; max-width: 190px;
+    padding: 9px 26px 9px 12px; border-radius: 999px;
+    background: rgba(255,255,255,.05) no-repeat right 11px center;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0h8L4 5z' fill='rgba(255,255,255,.45)'/%3E%3C/svg%3E");
+    border: 1px solid rgba(255,255,255,.14);
+    color: rgba(255,255,255,.62);
+    text-overflow: ellipsis; transition: color .2s, border-color .2s;
+  }
+  #model:hover { color: rgba(255,255,255,.9); border-color: rgba(255,255,255,.28); }
+  #model:focus { outline: none; border-color: rgba(255,255,255,.4); }
+  #model option { background: #12141c; color: #eef1f5; }
+
+  #send {
+    appearance: none; cursor: pointer; flex: none;
+    width: 34px; height: 34px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: #eef1f5; border: 0; color: #07080c;
+    transition: opacity .2s, transform .1s;
+  }
+  #send:hover { opacity: .85; }
+  #send:active { transform: scale(.94); }
+  #send:disabled { opacity: .3; cursor: default; }
+  #send svg { display: block; }
+</style>
+</head>
+<body>
+<three-d-stage name="slime-orb" background="#07080c"></three-d-stage>
+
+<div id="status" class="chip" data-state="idle">idle</div>
+<div id="caption" aria-live="polite"></div>
+
+<form id="composer">
+  <input id="prompt" type="text" autocomplete="off" placeholder="Say something to the slime…" aria-label="Message">
+  <select id="model" class="chip" aria-label="Model"><option>loading…</option></select>
+  <button id="send" type="submit" aria-label="Send">
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+      <path d="M7.5 12.5V2.5M7.5 2.5L3 7M7.5 2.5L12 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </button>
+</form>
+
+<script src="./three-d-stage.js"></script>
+<script type="module">
+import { createSlimeOrb } from './orb.js';
+import { createTextSession } from './session.js';
+
+const stage = document.querySelector('three-d-stage');
+const { THREE } = await stage.ready;
+
+/* The stage ships with an export toolbar and an orbit hint for prototyping.
+   They occupy the corners the composer now uses — drop these two lines to get
+   the OBJ/GLB download buttons back. */
+for (const sel of ['.toolbar', '.note']) {
+  stage.shadowRoot.querySelector(sel)?.style.setProperty('display', 'none');
+}
+
+const orb = createSlimeOrb({ stage, THREE });
+const session = createTextSession();
+
+const statusEl = document.querySelector('#status');
+const captionEl = document.querySelector('#caption');
+const promptEl = document.querySelector('#prompt');
+const modelEl = document.querySelector('#model');
+const sendEl = document.querySelector('#send');
+
+/* --- session → orb -------------------------------------------------------
+   The only wiring between transport and animation. A voice session emitting the
+   same events needs no changes here; it just adds 'level'. */
+
+function showState(state) {
+  // Resting at the keyboard reads as listening, not idle — otherwise the orb
+  // drops to idle the moment a reply ends, while the user is still typing.
+  if (state === 'idle' && document.activeElement === promptEl) state = 'listening';
+  orb.setState(state);
+  statusEl.dataset.state = orb.state;
+  statusEl.textContent = orb.state;
+  sendEl.disabled = session.busy;
+}
+
+session.on('state', showState);
+session.on('pulse', (weight) => orb.pulse(weight));
+session.on('level', (level) => orb.setLevel(level));
+
+session.on('text', (chunk) => {
+  captionEl.classList.remove('error');
+  captionEl.classList.add('visible');
+  captionEl.textContent += chunk;
+  captionEl.scrollTop = captionEl.scrollHeight;
+});
+
+session.on('error', ({ message }) => {
+  captionEl.classList.add('visible', 'error');
+  captionEl.textContent = message;
+});
+
+/* --- composer ------------------------------------------------------------ */
+
+// Listening is the resting state whenever the user is at the keyboard; when the
+// mic lands, VAD takes this over and drives orb.setLevel() alongside it.
+promptEl.addEventListener('focus', () => { if (!session.busy) showState('listening'); });
+promptEl.addEventListener('blur', () => { if (!session.busy) showState('idle'); });
+
+document.querySelector('#composer').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = promptEl.value;
+  if (!text.trim() || session.busy) return;
+  promptEl.value = '';
+  captionEl.textContent = '';
+  captionEl.classList.remove('visible', 'error');
+  session.send(text);
+});
+
+modelEl.addEventListener('change', () => { session.model = modelEl.value; });
+
+/* --- model list, live from /v1/models ------------------------------------ */
+
+const PREFERRED = 'claude-opus-5';
+try {
+  const res = await fetch('/api/models');
+  if (!res.ok) throw new Error(`model list unavailable (${res.status})`);
+  const { models } = await res.json();
+
+  modelEl.replaceChildren(...models.map((m) => {
+    const option = document.createElement('option');
+    option.value = m.id;
+    option.textContent = m.display_name ?? m.id;
+    return option;
+  }));
+
+  const selected = models.some((m) => m.id === PREFERRED) ? PREFERRED : models[0]?.id;
+  modelEl.value = selected;
+  session.model = selected;
+} catch (err) {
+  modelEl.replaceChildren(new Option('unavailable', ''));
+  captionEl.classList.add('visible', 'error');
+  captionEl.textContent = `${err.message} — is the proxy running? (npm start)`;
+}
+
+promptEl.focus();
+</script>
+</body>
+</html>
