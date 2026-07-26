@@ -44,6 +44,20 @@
   #status[data-state="thinking"]  { color: #8f7bff; }
   #status[data-state="speaking"]  { color: #38f2b6; }
 
+  #status[data-state="connecting"] { color: rgba(255,255,255,.72); }
+
+  /* What the person said, above their answer — smaller, dimmer, one line. */
+  #you {
+    position: fixed; left: 50%; bottom: 78px; transform: translateX(-50%);
+    z-index: 5; width: min(620px, calc(100vw - 96px));
+    font: 400 13px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: rgba(255,255,255,.42); text-align: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    text-shadow: 0 1px 20px rgba(7,8,12,.95);
+    opacity: 0; transition: opacity .4s; pointer-events: none;
+  }
+  #you.visible { opacity: 1; }
+
   /* Caption sits above the input, centred on the orb, and fades when spent. */
   #caption {
     position: fixed; left: 50%; bottom: 108px; transform: translateX(-50%);
@@ -63,7 +77,7 @@
     position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
     z-index: 5; display: flex; align-items: center; gap: 10px;
     width: min(620px, calc(100vw - 96px));
-    padding: 7px 7px 7px 16px; border-radius: 999px;
+    padding: 7px; border-radius: 999px;
     background: rgba(255,255,255,.05);
     border: 1px solid rgba(255,255,255,.14);
     backdrop-filter: blur(12px);
@@ -80,6 +94,24 @@
   }
   #prompt::placeholder { color: rgba(255,255,255,.34); }
   #prompt:focus { outline: none; }
+  #prompt:disabled { cursor: default; }
+
+  /* The mic is the primary control — everything else is the fallback path. */
+  #mic {
+    appearance: none; cursor: pointer; flex: none;
+    width: 34px; height: 34px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: rgba(255,255,255,.09); border: 0; color: rgba(255,255,255,.7);
+    transition: background .25s, color .25s, box-shadow .25s, transform .1s;
+  }
+  #mic:hover { background: rgba(255,255,255,.16); color: #eef1f5; }
+  #mic:active { transform: scale(.94); }
+  #mic[aria-pressed="true"] {
+    background: #38f2b6; color: #07080c;
+    box-shadow: 0 0 0 4px rgba(56,242,182,.14);
+  }
+  #mic[data-busy] { opacity: .5; cursor: default; }
+  #mic svg { display: block; }
 
   #model {
     appearance: none; cursor: pointer; flex: none; max-width: 190px;
@@ -111,10 +143,17 @@
 <three-d-stage name="slime-orb" background="#07080c"></three-d-stage>
 
 <div id="status" class="chip" data-state="idle">idle</div>
+<div id="you"></div>
 <div id="caption" aria-live="polite"></div>
 
 <form id="composer">
-  <input id="prompt" type="text" autocomplete="off" placeholder="Say something to the slime…" aria-label="Message">
+  <button id="mic" type="button" aria-pressed="false" aria-label="Start talking">
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+      <rect x="5.4" y="1.4" width="4.2" height="7.6" rx="2.1" stroke="currentColor" stroke-width="1.4"/>
+      <path d="M3 7.2a4.5 4.5 0 0 0 9 0M7.5 11.7v2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </svg>
+  </button>
+  <input id="prompt" type="text" autocomplete="off" disabled placeholder="Tap the mic and talk to the slime…" aria-label="Message">
   <select id="model" class="chip" aria-label="Model"><option>loading…</option></select>
   <button id="send" type="submit" aria-label="Send">
     <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
@@ -126,7 +165,7 @@
 <script src="./three-d-stage.js"></script>
 <script type="module">
 import { createSlimeOrb } from './orb.js';
-import { createTextSession } from './session.js';
+import { createVoiceSession } from './session.js';
 
 const stage = document.querySelector('three-d-stage');
 const { THREE } = await stage.ready;
@@ -139,29 +178,49 @@ for (const sel of ['.toolbar', '.note']) {
 }
 
 const orb = createSlimeOrb({ stage, THREE });
-const session = createTextSession();
+const session = createVoiceSession();
 
 const statusEl = document.querySelector('#status');
 const captionEl = document.querySelector('#caption');
+const youEl = document.querySelector('#you');
 const promptEl = document.querySelector('#prompt');
 const modelEl = document.querySelector('#model');
 const sendEl = document.querySelector('#send');
+const micEl = document.querySelector('#mic');
 
 /* --- session → orb -------------------------------------------------------
-   The only wiring between transport and animation. A voice session emitting the
-   same events needs no changes here; it just adds 'level'. */
+   The only wiring between transport and animation. 'pulse' arrives per
+   transcript token, 'level' per frame from whichever side of the call is
+   making sound; the orb folds both into the same energy. */
 
 function showState(state) {
-  // Resting at the keyboard reads as listening, not idle — otherwise the orb
-  // drops to idle the moment a reply ends, while the user is still typing.
-  if (state === 'idle' && document.activeElement === promptEl) state = 'listening';
   orb.setState(state);
   statusEl.dataset.state = orb.state;
   statusEl.textContent = orb.state;
-  sendEl.disabled = session.busy;
+  syncControls();
 }
 
-session.on('state', showState);
+function syncControls() {
+  const live = session.connected;
+  micEl.setAttribute('aria-pressed', String(live));
+  micEl.setAttribute('aria-label', live ? 'Stop talking' : 'Start talking');
+  promptEl.disabled = !live;
+  promptEl.placeholder = live
+    ? 'Or type, if speaking out loud is awkward…'
+    : 'Tap the mic and talk to the slime…';
+  sendEl.disabled = !live || session.busy;
+}
+
+function clearCaption() {
+  captionEl.textContent = '';
+  captionEl.classList.remove('visible', 'error');
+}
+
+session.on('state', (state) => {
+  // A new turn starts here: the previous answer clears as the slime thinks.
+  if (state === 'thinking') clearCaption();
+  showState(state);
+});
 session.on('pulse', (weight) => orb.pulse(weight));
 session.on('level', (level) => orb.setLevel(level));
 
@@ -172,37 +231,71 @@ session.on('text', (chunk) => {
   captionEl.scrollTop = captionEl.scrollHeight;
 });
 
+session.on('user', (text) => {
+  youEl.textContent = text;
+  youEl.classList.add('visible');
+});
+
 session.on('error', ({ message }) => {
   captionEl.classList.add('visible', 'error');
   captionEl.textContent = message;
+  syncControls();
 });
 
-/* --- composer ------------------------------------------------------------ */
+/* --- controls ------------------------------------------------------------ */
 
-// Listening is the resting state whenever the user is at the keyboard; when the
-// mic lands, VAD takes this over and drives orb.setLevel() alongside it.
-promptEl.addEventListener('focus', () => { if (!session.busy) showState('listening'); });
-promptEl.addEventListener('blur', () => { if (!session.busy) showState('idle'); });
+micEl.addEventListener('click', async () => {
+  if ('busy' in micEl.dataset) return;
+  if (session.connected) {
+    session.stop();
+    youEl.classList.remove('visible');
+    syncControls();
+    return;
+  }
+  // The click is also the gesture that lets audio play and the mic prompt fire.
+  micEl.dataset.busy = '';
+  statusEl.dataset.state = 'connecting';
+  statusEl.textContent = 'connecting';
+  clearCaption();
+  await session.start();
+  delete micEl.dataset.busy;
+  syncControls();
+});
 
 document.querySelector('#composer').addEventListener('submit', (e) => {
   e.preventDefault();
   const text = promptEl.value;
-  if (!text.trim() || session.busy) return;
+  if (!text.trim() || !session.connected) return;
   promptEl.value = '';
-  captionEl.textContent = '';
-  captionEl.classList.remove('visible', 'error');
+  youEl.textContent = text;
+  youEl.classList.add('visible');
+  clearCaption();
   session.send(text);
 });
 
-modelEl.addEventListener('change', () => { session.model = modelEl.value; });
+// Escape is barge-in for the typed path; speaking over the slime is handled by
+// the server's VAD, which truncates its own playback.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && session.busy) session.cancel();
+});
+
+modelEl.addEventListener('change', async () => {
+  session.model = modelEl.value;
+  // The model is baked into the client secret, so a change means a new call.
+  if (session.connected) {
+    session.stop();
+    micEl.click();
+  }
+});
 
 /* --- model list, live from /v1/models ------------------------------------ */
 
-const PREFERRED = 'claude-opus-5';
+const PREFERRED = 'gpt-realtime';
 try {
   const res = await fetch('/api/models');
-  if (!res.ok) throw new Error(`model list unavailable (${res.status})`);
-  const { models } = await res.json();
+  const { models, error } = await res.json();
+  if (!res.ok) throw new Error(error ?? `model list unavailable (${res.status})`);
+  if (!models.length) throw new Error('this key can’t reach any realtime model');
 
   modelEl.replaceChildren(...models.map((m) => {
     const option = document.createElement('option');
@@ -216,11 +309,16 @@ try {
   session.model = selected;
 } catch (err) {
   modelEl.replaceChildren(new Option('unavailable', ''));
+  micEl.dataset.busy = '';
   captionEl.classList.add('visible', 'error');
   captionEl.textContent = `${err.message} — is the proxy running? (npm start)`;
 }
 
-promptEl.focus();
+// Leaving the tab mid-call would otherwise keep the mic hot and the meter spinning.
+window.addEventListener('pagehide', () => session.stop());
+
+syncControls();
+micEl.focus();
 </script>
 </body>
 </html>

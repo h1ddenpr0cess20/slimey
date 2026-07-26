@@ -34,12 +34,6 @@ function createEmitter() {
   };
 }
 
-/** Longer tokens deserve a bigger wobble, but the range stays narrow so the
- *  surface reads as a steady simmer rather than a strobe. */
-function tokenWeight(text) {
-  return Math.min(0.34, 0.16 + text.length * 0.018);
-}
-
 /** RMS of one analyser frame, mapped to the orb's 0..1 energy. Speech sits
  *  around 0.05–0.2 RMS, so the gain lifts a normal speaking voice to most of
  *  the range without pinning it. */
@@ -122,6 +116,9 @@ export function createVoiceSession({ endpoint = '/api/session', model } = {}) {
 
       case 'response.created':
         responding = true;
+        // Audio drives sustain from here on; impulses are reserved for the two
+        // moments a turn changes hands, where a discrete wobble reads as a beat.
+        emit('pulse', 0.32);
         setState('thinking');
         break;
 
@@ -137,13 +134,13 @@ export function createVoiceSession({ endpoint = '/api/session', model } = {}) {
         setState('speaking');
         transcript += event.delta;
         emit('text', event.delta);
-        emit('pulse', tokenWeight(event.delta));
         break;
 
       case 'conversation.item.input_audio_transcription.completed':
         if (event.transcript?.trim()) {
           messages.push({ role: 'user', content: event.transcript.trim() });
           emit('user', event.transcript.trim());
+          emit('pulse', 0.22);
         }
         break;
 
