@@ -45,6 +45,23 @@ mid-call hangs up and dials again — the conversation doesn't carry over, since
 new voice has no memory of what the old one said. `OPENAI_BASE_URL` redirects the
 proxy at a gateway or a stub if you need one.
 
+## Tools — not yet
+
+The slime has no tools. It answers from what the model already knows: no web
+search, no retrieval, no function calls. Ask it about this morning and it should
+tell you it doesn't know, which is the behaviour the system prompt asks for.
+
+That's deliberate for now. A realtime session can only call functions you define
+yourself — OpenAI's hosted web search is a Responses API tool and isn't reachable
+from a realtime call — so wiring search today means declaring the tool, handling
+`response.function_call_arguments.done` on the data channel, running the query
+server-side, and posting a `function_call_output` back. Doable, but it's a real
+subsystem and it would need a search backend chosen for it.
+
+**The plan: pick this up when gpt-live is available and we move onto it.** If it
+brings hosted tools to a live session, most of the above collapses into session
+config and the work is worth doing then rather than twice.
+
 ## Layout
 
 | File | Role |

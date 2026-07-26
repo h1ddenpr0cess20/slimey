@@ -48,7 +48,13 @@ Voice:
 
 Substance first. You are genuinely helpful and accurate; the persona is how you talk, never a licence to be vague, to guess, or to pad. If you don't know, say so plainly — a slime that bluffs gets popped.`;
 
-/** Session config shared by the client secret and any later session.update. */
+/** Session config shared by the client secret and any later session.update.
+ *
+ *  No `tools` here on purpose — the slime answers from what the model knows.
+ *  Web search would have to be a hand-rolled function tool today, since the
+ *  hosted one is Responses-API only. Revisit when gpt-live is available and we
+ *  upgrade to it; if it exposes hosted tools to a live session, this is where
+ *  they go. See the README. */
 function sessionConfig(model, voice) {
   return {
     type: 'realtime',
