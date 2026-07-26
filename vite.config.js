@@ -44,6 +44,11 @@ export default defineConfig(({ mode }) => {
     build: {
       target: 'es2022',
       sourcemap: true,
+      // three is ~180 kB gzipped and it is the entire point of the page, so the
+      // default 500 kB warning has nothing useful to tell us. The stage's OBJ
+      // and GLTF exporters stay dynamically imported and are never fetched
+      // while the export toolbar is hidden.
+      chunkSizeWarningLimit: 800,
     },
   };
 });

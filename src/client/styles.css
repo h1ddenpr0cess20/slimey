@@ -1,0 +1,272 @@
+/* Slime Orb — page chrome.
+   The orb itself is WebGL and styles nothing here; this is the HUD around it. */
+
+:root {
+  --ink: #eef1f5;
+  --void: #07080c;
+  --listening: #37c8f7;
+  --thinking: #8f7bff;
+  --speaking: #38f2b6;
+  --stack: min(620px, 100%);
+  --gutter: 24px;
+  /* Set by ui/viewport.js when an on-screen keyboard covers the bottom. */
+  --keyboard-inset: 0px;
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--void);
+  overflow: hidden;
+  /* No pull-to-refresh or rubber-banding when a drag on the orb overshoots. */
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+three-d-stage:not(:defined) { visibility: hidden; }
+three-d-stage {
+  display: block;
+  width: 100%;
+  /* dvh, so mobile browser chrome collapsing doesn't crop the orb. */
+  height: 100dvh;
+  /* The canvas is a drag surface for orbit controls, not a scroll surface. */
+  touch-action: none;
+}
+
+/* Shared with the original state row: mono, uppercase, wide tracking. */
+.chip {
+  font: 500 11px/1 var(--mono);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+/* --- status ---------------------------------------------------------------
+   Top-left, out of the HUD's way at every width. */
+
+#status {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 20px);
+  left: calc(env(safe-area-inset-left) + var(--gutter));
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, .4);
+  transition: color .3s;
+  pointer-events: none;
+}
+#status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .9;
+}
+#status[data-state="listening"]  { color: var(--listening); }
+#status[data-state="thinking"]   { color: var(--thinking); }
+#status[data-state="speaking"]   { color: var(--speaking); }
+#status[data-state="connecting"] { color: rgba(255, 255, 255, .72); }
+
+/* --- the bottom stack -----------------------------------------------------
+   Transcript, caption and composer in flow order. Nothing is positioned
+   against a hand-measured offset, so the composer can wrap to two rows and
+   everything above it moves up on its own. */
+
+#hud {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding:
+    0
+    calc(env(safe-area-inset-right) + var(--gutter))
+    calc(env(safe-area-inset-bottom) + var(--keyboard-inset) + 22px)
+    calc(env(safe-area-inset-left) + var(--gutter));
+  /* Only the controls take input — the rest of the strip stays draggable so
+     the orb can still be spun behind it. */
+  pointer-events: none;
+}
+#hud > * { width: var(--stack); }
+
+/* What the person said, above their answer — smaller, dimmer, one line. */
+#you {
+  font: 400 13px/1.5 var(--sans);
+  color: rgba(255, 255, 255, .42);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 20px rgba(7, 8, 12, .95);
+  opacity: 0;
+  transition: opacity .4s;
+}
+#you.visible { opacity: 1; }
+
+/* Fades when spent; scrolls on its own if the slime runs long. */
+#caption {
+  max-height: 34dvh;
+  overflow-y: auto;
+  font: 400 16px/1.65 var(--sans);
+  color: rgba(255, 255, 255, .92);
+  text-align: center;
+  text-wrap: pretty;
+  text-shadow: 0 1px 24px rgba(7, 8, 12, .95), 0 1px 4px rgba(7, 8, 12, .9);
+  opacity: 0;
+  transition: opacity .45s;
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+}
+#caption::-webkit-scrollbar { display: none; }
+#caption.visible { opacity: 1; pointer-events: auto; }
+#caption.error { color: #ff9b9b; }
+
+/* --- composer ------------------------------------------------------------- */
+
+#composer {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .14);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: border-color .25s, background .25s;
+}
+#composer:focus-within {
+  border-color: rgba(255, 255, 255, .32);
+  background: rgba(255, 255, 255, .08);
+}
+
+/* Wide enough for five controls in a row: the pickers join the flex line. */
+#options { display: contents; }
+#send { order: 1; }
+
+#prompt {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  background: none;
+  border: 0;
+  color: var(--ink);
+  /* 16px is the threshold below which iOS Safari zooms the page on focus. */
+  font: 400 16px/1.4 var(--sans);
+}
+#prompt::placeholder { color: rgba(255, 255, 255, .34); }
+#prompt:focus { outline: none; }
+#prompt:disabled { cursor: default; }
+
+/* The mic is the primary control — everything else is the fallback path. */
+#mic {
+  appearance: none;
+  cursor: pointer;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, .09);
+  border: 0;
+  color: rgba(255, 255, 255, .7);
+  transition: background .25s, color .25s, box-shadow .25s, transform .1s;
+}
+#mic:hover { background: rgba(255, 255, 255, .16); color: var(--ink); }
+#mic:active { transform: scale(.94); }
+#mic[aria-pressed="true"] {
+  background: var(--speaking);
+  color: var(--void);
+  box-shadow: 0 0 0 4px rgba(56, 242, 182, .14);
+}
+#mic[data-busy] { opacity: .5; cursor: default; }
+#mic svg { display: block; }
+
+#send {
+  appearance: none;
+  cursor: pointer;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--ink);
+  border: 0;
+  color: var(--void);
+  transition: opacity .2s, transform .1s;
+}
+#send:hover { opacity: .85; }
+#send:active { transform: scale(.94); }
+#send:disabled { opacity: .3; cursor: default; }
+#send svg { display: block; }
+
+#model, #voice {
+  appearance: none;
+  cursor: pointer;
+  flex: none;
+  max-width: 168px;
+  padding: 9px 26px 9px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .05) no-repeat right 11px center;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0h8L4 5z' fill='rgba(255,255,255,.45)'/%3E%3C/svg%3E");
+  border: 1px solid rgba(255, 255, 255, .14);
+  color: rgba(255, 255, 255, .62);
+  text-overflow: ellipsis;
+  transition: color .2s, border-color .2s;
+}
+#model:hover, #voice:hover { color: rgba(255, 255, 255, .9); border-color: rgba(255, 255, 255, .28); }
+#model:focus, #voice:focus { outline: none; border-color: rgba(255, 255, 255, .4); }
+#model option, #voice option { background: #12141c; color: var(--ink); }
+/* Voice names are one short word — it never needs the model's width. */
+#voice { max-width: 112px; }
+
+/* --- narrow -------------------------------------------------------------- */
+
+@media (max-width: 640px) {
+  :root { --gutter: 14px; }
+
+  #status {
+    top: calc(env(safe-area-inset-top) + 14px);
+  }
+
+  /* Five controls don't fit across a phone. The pickers drop to their own row
+     and split it; mic, field and send keep the first. */
+  #composer { flex-wrap: wrap; }
+  #options {
+    display: flex;
+    order: 2;
+    flex: 1 0 100%;
+    gap: 8px;
+  }
+  #model, #voice {
+    flex: 1 1 0;
+    max-width: none;
+    min-width: 0;
+    padding: 11px 24px 11px 12px;
+  }
+
+  #caption { font-size: 15px; max-height: 28dvh; }
+}
+
+/* Fingers, not cursors — hit targets go up and the hovers stop mattering. */
+@media (pointer: coarse) {
+  #mic, #send { width: 44px; height: 44px; }
+  #mic:hover { background: rgba(255, 255, 255, .09); color: rgba(255, 255, 255, .7); }
+  #mic[aria-pressed="true"]:hover { background: var(--speaking); color: var(--void); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #you, #caption, #status, #composer, #mic, #send, #model, #voice {
+    transition-duration: .01ms;
+  }
+}

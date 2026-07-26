@@ -1,5 +1,11 @@
 // @ds-adherence-ignore -- omelette starter scaffold (raw elements/hex/px by design)
 // Copied omelette starter. Re-running copy_starter_component with this kind overwrites this file with the latest version (page content is unaffected).
+//
+// LOCAL CHANGES — re-copying the starter drops these, so reapply them:
+//   1. shadowMap.type: PCFSoftShadowMap → PCFShadowMap (deprecated in r183).
+// three.js now resolves from node_modules through Vite rather than the import
+// map documented below; the bare specifiers in the dynamic imports are
+// unchanged, with `three/addons/` aliased in vite.config.js.
 /* BEGIN USAGE */
 /**
  * <three-d-stage> — 3D object viewer + exporter shell (three.js).
@@ -221,7 +227,10 @@
       });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      // LOCAL CHANGE: PCFSoftShadowMap is deprecated as of three r183 and the
+      // renderer silently falls back to PCFShadowMap after warning. Asking for
+      // it directly is the same picture without the console noise.
+      renderer.shadowMap.type = THREE.PCFShadowMap;
       this._renderer = renderer;
       this.shadowRoot.insertBefore(renderer.domElement, this._err);
 
