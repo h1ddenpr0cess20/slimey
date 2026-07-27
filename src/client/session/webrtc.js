@@ -7,20 +7,11 @@
 
 const REALTIME_URL = 'https://api.openai.com/v1/realtime/calls';
 
-/* A stalled SCTP association leaves the connection state at `connected` and the
-   channel at `connecting` forever, which would hang start() with the mic hot. */
+/* Stalled SCTP sits at connected/connecting forever, hanging start() with the mic hot. */
 const CHANNEL_TIMEOUT = 15_000;
 
-/**
- * The events channel opening, as a promise with an off switch.
- *
- * The SDP answer only means the far end agreed to talk — the channel opens a
- * beat later, once DTLS and SCTP have settled, and until then the call can
- * neither carry a conversation item nor honestly call itself connected.
- *
- * `cancel()` settles it rather than abandoning it, so giving up on the
- * handshake earlier can't leave a rejection nobody is listening for.
- */
+/** `cancel()` settles rather than abandons — giving up early must not leave a
+ *  rejection nobody is listening for. */
 function channelOpen(pc, channel) {
   let settle;
   const promise = new Promise((resolve, reject) => {
@@ -74,9 +65,7 @@ export async function connect({ secret, micStream, onEvent, onTrack, onClose }) 
       }
     });
 
-    // Watched from here rather than after the handshake, so a channel that
-    // opens the instant the answer lands can't slip through unnoticed.
-    ready = channelOpen(pc, channel);
+    ready = channelOpen(pc, channel); // before the handshake, so an early open isn't missed
 
     pc.addEventListener('connectionstatechange', () => {
       if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) {
@@ -93,8 +82,7 @@ export async function connect({ secret, micStream, onEvent, onTrack, onClose }) 
     if (!answer.ok) throw new Error(`realtime handshake failed (${answer.status})`);
     await pc.setRemoteDescription({ type: 'answer', sdp: await answer.text() });
 
-    // Resolving before this would hand back a call that can't be typed to and
-    // that `connected` reports as down — with nothing left to say otherwise.
+    // The SDP answer is not the call: until this resolves, `connected` is false.
     await ready.promise;
 
     return {
@@ -112,8 +100,6 @@ export async function connect({ secret, micStream, onEvent, onTrack, onClose }) 
       },
     };
   } catch (err) {
-    // Nobody downstream has a handle on this peer, so it has to let go of its
-    // own transceivers here rather than hold them for the life of the page.
     ready?.cancel();
     pc.close();
     throw err;

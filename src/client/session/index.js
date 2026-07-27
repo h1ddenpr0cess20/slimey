@@ -48,11 +48,7 @@ export function createVoiceSession({ model, voice } = {}) {
 
   let state = 'idle';
   let connecting = false;
-  /* Dialling spans a permission prompt, a mint and a handshake, and stop() can
-     land in the middle of any of them — a `pagehide`, or the page redialling on
-     a new voice. Every stop() retires the generation start() is building, so
-     the loser tidies up after itself instead of finishing into a torn-down
-     session. */
+  // stop() can land mid-dial. Bumping this retires the dial in flight.
   let generation = 0;
 
   function setState(next) {
@@ -109,9 +105,7 @@ export function createVoiceSession({ model, voice } = {}) {
         micStream,
         onEvent: events.handle,
         onTrack: (stream) => {
-          // Arrives on a WebRTC event rather than in the chain below, so a
-          // hangup can land first — and there'd be no audio element left.
-          if (abandoned()) return;
+          if (abandoned()) return; // a hangup can land between here and the chain below
           audioEl.srcObject = stream;
           outAnalyser = createAnalyser(audio, stream);
         },

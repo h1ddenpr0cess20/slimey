@@ -29,9 +29,6 @@ async function readJSON(req) {
   }
   if (!chunks.length) return {};
   const body = JSON.parse(Buffer.concat(chunks).toString());
-  // `null` is valid JSON and not a request body. Rejecting it here makes it a
-  // 400 like every other malformed body, rather than a TypeError dressed up as
-  // a 502 blaming OpenAI for something the browser sent.
   if (body === null || typeof body !== 'object') throw new Error('body is not an object');
   return body;
 }

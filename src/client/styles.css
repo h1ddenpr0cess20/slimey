@@ -118,8 +118,7 @@ three-d-stage {
   color: rgba(255, 255, 255, .92);
   text-align: center;
   text-wrap: pretty;
-  /* The transcript arrives with its own line breaks; the default would
-     collapse every one of them into a space and run the answer together. */
+  /* The transcript has its own line breaks; the default collapses them. */
   white-space: pre-wrap;
   overflow-wrap: break-word;
   text-shadow: 0 1px 24px rgba(7, 8, 12, .95), 0 1px 4px rgba(7, 8, 12, .9);
@@ -132,7 +131,6 @@ three-d-stage {
 #caption.visible { opacity: 1; pointer-events: auto; }
 #caption.error { color: #ff9b9b; }
 
-/* The inline markdown ui/hud.js renders when the model reaches for it anyway. */
 #caption strong { font-weight: 620; }
 #caption em { font-style: italic; }
 #caption s { opacity: .6; }
@@ -141,7 +139,6 @@ three-d-stage {
   background: rgba(255, 255, 255, .1);
   border-radius: 5px;
   padding: .1em .34em;
-  /* Undo the parent's pre-wrap for spans that are already one line. */
   white-space: pre;
 }
 
@@ -212,7 +209,6 @@ three-d-stage {
   color: var(--void);
   box-shadow: 0 0 0 4px rgba(56, 242, 182, .14);
 }
-/* Dialling, and no catalog to dial with — both read as "not right now". */
 #mic[data-busy], #mic:disabled { opacity: .5; cursor: default; }
 #mic svg { display: block; }
 

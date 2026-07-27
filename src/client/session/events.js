@@ -14,9 +14,7 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
   let responding = false;
   let transcript = '';
 
-  /* Announced rather than just recorded. A response can begin and end well
-     inside a single 'listening' or 'thinking', so anything drawing itself from
-     `busy` — the send button — would never hear about it on 'state' alone. */
+  // A response can begin and end inside one 'thinking', so 'state' won't carry this.
   function setResponding(next) {
     if (responding === next) return;
     responding = next;

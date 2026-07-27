@@ -6,13 +6,8 @@
  * session.
  */
 
-/* The persona asks for no markdown, since everything the slime writes gets
-   said out loud — but models reach for **emphasis** and `backticks` anyway,
-   and a caption showing the punctuation reads as a bug rather than as the
-   model going off script. So: inline spans only, no blocks and no links.
-   The order matters — `code` first, so nothing inside a backtick span is
-   reinterpreted, and `**` before `*`, so bold isn't read as an emphasised
-   asterisk. */
+/* Models emit markdown despite the persona asking for none. Inline spans only.
+   Order matters: `code` first, `**` before `*`. */
 const INLINE = [
   { tag: 'code', re: /`([^`\n]+)`/ },
   { tag: 'strong', re: /\*\*(\S|\S[\s\S]*?\S)\*\*/ },
@@ -35,11 +30,7 @@ function firstSpan(text) {
   return found;
 }
 
-/**
- * Markdown → nodes, built out of createElement and text rather than innerHTML.
- * A transcript is model output, so it never becomes markup here no matter what
- * the model says.
- */
+/** Markdown → nodes. Never innerHTML: this is model output. */
 function render(text, into) {
   let rest = text;
   for (let span = firstSpan(rest); span; span = firstSpan(rest)) {
@@ -60,10 +51,7 @@ export function createHud(root = document) {
   const captionEl = root.querySelector('#caption');
   const youEl = root.querySelector('#you');
 
-  /* The turn so far, kept whole. The caption is re-rendered from it on every
-     delta rather than appended to, because a span and its closing delimiter
-     routinely arrive in different chunks — there is nothing to format until
-     you are holding both. */
+  // Re-rendered whole each delta: a span and its closer arrive in different chunks.
   let turn = '';
 
   return {
@@ -98,9 +86,7 @@ export function createHud(root = document) {
     },
 
     showError(message) {
-      // Ours rather than the model's, so it shows exactly as written — and it
-      // ends the turn, so the next transcript doesn't render on top of it.
-      turn = '';
+      turn = ''; // ours, not the model's: shown verbatim, and it ends the turn
       captionEl.textContent = message;
       captionEl.classList.add('visible', 'error');
     },
