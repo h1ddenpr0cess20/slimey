@@ -14,6 +14,11 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
   let responding = false;
   let transcript = '';
 
+  function flush() {
+    if (transcript) messages.push({ role: 'assistant', content: transcript });
+    transcript = '';
+  }
+
   // A response can begin and end inside one 'thinking', so 'state' won't carry this.
   function setResponding(next) {
     if (responding === next) return;
@@ -24,8 +29,9 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
   function handle(event) {
     switch (event.type) {
       case 'input_audio_buffer.speech_started':
-        // Barge-in: the server truncates its own playback, we just follow.
-        transcript = '';
+        // Barge-in: the server truncates its own playback, we just follow. What
+        // it had already said was heard, so it is logged rather than dropped.
+        flush();
         setState('listening');
         break;
 
@@ -66,8 +72,7 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
       case 'response.done': {
         setResponding(false);
         const response = event.response ?? {};
-        if (transcript) messages.push({ role: 'assistant', content: transcript });
-        transcript = '';
+        flush();
         if (response.status === 'failed') {
           fail(response.status_details?.error?.message ?? 'the response failed');
         }

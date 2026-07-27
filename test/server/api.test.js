@@ -81,6 +81,23 @@ describe('POST /api/session', () => {
     });
   });
 
+  it('vets the model the browser names, the way it vets the voice', async () => {
+    const { stub, middleware } = await api();
+    after(() => stub.close());
+
+    await withServer(middleware, async (request) => {
+      // The picker hides the translate and whisper tiers because they cannot
+      // hold a conversation. Nothing stopped a request naming one anyway.
+      for (const model of ['gpt-realtime-translate', 'whisper-1-realtime', 'not-a-model', 42]) {
+        const { body } = await request('/api/session', post({ model }));
+        assert.equal(body.model, 'gpt-realtime-2.1', `${model} was minted as-is`);
+      }
+
+      const ok = await request('/api/session', post({ model: 'gpt-realtime-mini' }));
+      assert.equal(ok.body.model, 'gpt-realtime-mini', 'a real realtime id must still pass');
+    });
+  });
+
   it('rejects valid JSON that is not an object with a 400, not a 502', async () => {
     const { stub, middleware } = await api();
     after(() => stub.close());

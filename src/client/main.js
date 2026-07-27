@@ -45,6 +45,9 @@ const controls = createControls({
     hud.setState('connecting');
     hud.clearCaption();
     await session.start();
+    // A pick that landed while this was in the air found no live call to hang
+    // up, so redial() dropped it. Deferred past toggleMic's own lock.
+    if (session.stale) setTimeout(redial, 0);
   },
 
   onSubmit(text) {

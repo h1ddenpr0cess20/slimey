@@ -53,17 +53,23 @@ export function createOpenAIClient({ baseUrl, apiKey, defaultModel, defaultVoice
       // Only voices we know about get proxied through; anything else is a typo
       // that would come back as an opaque 400 halfway through the handshake.
       const chosen = voices.includes(voice) ? voice : defaultVoice;
+      // Same reasoning for the model, which was going through unchecked: the
+      // picker only ever offers conversational realtime ids.
+      const chosenModel = typeof model === 'string'
+        && model.includes('realtime') && !NOT_CONVERSATIONAL.test(model)
+        ? model
+        : defaultModel;
       const secret = await request('/realtime/client_secrets', {
         method: 'POST',
         body: JSON.stringify({
           expires_after: { anchor: 'created_at', seconds: secretTtl },
-          session: sessionConfig(model || defaultModel, chosen),
+          session: sessionConfig(chosenModel, chosen),
         }),
       });
       return {
         value: secret.value,
         expires_at: secret.expires_at,
-        model: secret.session?.model ?? model ?? defaultModel,
+        model: secret.session?.model ?? chosenModel,
         voice: chosen,
       };
     },

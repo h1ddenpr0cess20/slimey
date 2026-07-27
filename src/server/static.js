@@ -55,7 +55,7 @@ export function createStaticMiddleware(root) {
     if (!found) return next();
 
     res.writeHead(200, {
-      'content-type': MIME[extname(found.file)] ?? 'application/octet-stream',
+      'content-type': MIME[extname(found.file).toLowerCase()] ?? 'application/octet-stream',
       'cache-control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
       'content-length': found.body.length,
     });

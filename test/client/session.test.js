@@ -326,6 +326,39 @@ describe('createVoiceSession', () => {
     });
   });
 
+  describe('a pick that lands mid-dial', () => {
+    it('marks the call stale, since redial() had no live call to hang up', async () => {
+      const started = session.start();
+      await new Promise((resolve) => setTimeout(resolve, 0)); // the secret is out
+      session.model = 'gpt-realtime-mini';
+      await started;
+
+      assert.equal(session.connected, true);
+      assert.equal(session.stale, true, 'the call is on a model the picker no longer shows');
+    });
+
+    it('is not stale merely because the proxy had the last word', async () => {
+      session.model = 'gpt-realtime-mini';
+      env.secret = { value: 'ek_test', model: 'gpt-realtime-2.1', voice: 'ballad' };
+
+      await dial();
+
+      // Redialling on the proxy's own substitution would never terminate.
+      assert.equal(session.stale, false);
+    });
+
+    it('is not stale once the redial has caught up', async () => {
+      const started = session.start();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      session.model = 'gpt-realtime-mini';
+      await started;
+
+      session.stop();
+      await dial();
+      assert.equal(session.stale, false);
+    });
+  });
+
   describe('hanging up mid-dial', () => {
     it('abandons a call nobody is waiting for any more', async () => {
       // `pagehide` while the mic prompt is still up, or the page redialling on

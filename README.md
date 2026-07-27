@@ -154,7 +154,7 @@ while the model's track is live, `idle` when there is no call.
 ## The transport seam
 
 `session/index.js` exposes `on`, `start`, `stop`, `send`, `cancel`, `messages`,
-`connected`, `busy`, `state`, `model`, `voice` — and emits:
+`connected`, `busy`, `stale`, `state`, `model`, `voice` — and emits:
 
 ```
 'state'  listening | thinking | speaking | idle

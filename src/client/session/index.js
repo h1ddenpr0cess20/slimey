@@ -50,6 +50,10 @@ export function createVoiceSession({ model, voice } = {}) {
   let connecting = false;
   // stop() can land mid-dial. Bumping this retires the dial in flight.
   let generation = 0;
+  // Bumped by the setters, snapshotted at mint: unequal means the pickers moved
+  // after the secret went out, and the live call is on settings nobody asked for.
+  let picked = 0;
+  let mintedPick = 0;
 
   function setState(next) {
     if (state === next) return;
@@ -86,6 +90,7 @@ export function createVoiceSession({ model, voice } = {}) {
       micStream = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
       if (abandoned()) return stop();
 
+      mintedPick = picked;
       const secret = await fetchClientSecret({ model: current, voice: currentVoice });
       if (abandoned()) return stop();
       // The proxy has the last word on both — it falls back to its own defaults
@@ -166,11 +171,14 @@ export function createVoiceSession({ model, voice } = {}) {
     get busy() { return events.responding; },
     get state() { return state; },
     get model() { return current; },
-    set model(next) { current = next; },
+    set model(next) { current = next; picked++; },
     /** Both are pinned into the client secret, so changing either only takes
      *  effect on the next call — the page redials. */
     get voice() { return currentVoice; },
-    set voice(next) { currentVoice = next; },
+    set voice(next) { currentVoice = next; picked++; },
+    /** The live call was minted before the current pick — it is on the wrong
+     *  model or voice, and only another dial can fix that. */
+    get stale() { return !!call && picked !== mintedPick; },
     /** Manual barge-in — the VAD covers the spoken case on its own. */
     cancel() {
       if (events.responding) call?.send({ type: 'response.cancel' });

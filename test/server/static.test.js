@@ -18,6 +18,7 @@ describe('static hosting', () => {
     await writeFile(join(root, 'assets', 'index-abc123.css'), 'body{}');
     // Anything dropped in public/ ships under whatever name it had.
     await writeFile(join(root, 'a slime.svg'), '<svg/>');
+    await writeFile(join(root, 'SLIME.PNG'), 'png');
     middleware = createStaticMiddleware(root);
   });
 
@@ -27,6 +28,13 @@ describe('static hosting', () => {
       assert.equal(status, 200);
       assert.match(headers.get('content-type'), /text\/html/);
       assert.match(body, /orb/);
+    });
+  });
+
+  it('types a file by its extension whatever case it is in', async () => {
+    await withServer(middleware, async (request) => {
+      const { headers } = await request('/SLIME.PNG');
+      assert.match(headers.get('content-type'), /image\/png/);
     });
   });
 
