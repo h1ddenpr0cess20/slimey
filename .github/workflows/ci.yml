@@ -69,3 +69,15 @@ jobs:
           curl -sf -o /dev/null -w 'index %{http_code}\n' "http://127.0.0.1:5173/" | tee /dev/stderr | grep -q 'index 200'
           # No key in this job, so /api/* should say so rather than crash.
           curl -s "http://127.0.0.1:5173/api/models" | grep -q 'OPENAI_API_KEY is not set'
+      # The phone path: --https has to generate a certificate and serve on it,
+      # since that is the only way the mic is reachable off localhost.
+      - name: Smoke test the LAN server over https
+        run: |
+          node src/server/index.js --https &
+          server=$!
+          trap 'kill $server' EXIT
+          for i in $(seq 1 40); do
+            curl -ksf -o /dev/null "https://127.0.0.1:5173/" && break
+            sleep 0.25
+          done
+          curl -ksf -o /dev/null -w 'index %{http_code}\n' "https://127.0.0.1:5173/" | tee /dev/stderr | grep -q 'index 200'

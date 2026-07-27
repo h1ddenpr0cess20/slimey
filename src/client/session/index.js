@@ -32,6 +32,23 @@ const MIC_CONSTRAINTS = {
   audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
 };
 
+/**
+ * Why the microphone can't be asked for at all, or null if it can.
+ *
+ * Browsers only expose `navigator.mediaDevices` on a secure origin, so a page
+ * served over plain http:// doesn't have the namespace — not an empty one,
+ * none at all. Reaching straight for getUserMedia there throws "Cannot read
+ * properties of undefined", which is true and useless. The same check catches
+ * the embedded browsers (in-app webviews) that withhold capture on an
+ * otherwise secure page.
+ */
+function micUnavailable() {
+  if (navigator.mediaDevices?.getUserMedia) return null;
+  return globalThis.isSecureContext === false
+    ? 'the microphone needs a secure page, and this one is plain http:// — serve it over https (npm run dev:lan) or open it on localhost'
+    : 'this browser won’t hand over a microphone — try opening the page in Safari or Chrome';
+}
+
 export function createVoiceSession({ model, voice } = {}) {
   const { on, emit } = createEmitter();
   const messages = [];
@@ -87,6 +104,8 @@ export function createVoiceSession({ model, voice } = {}) {
     const abandoned = () => mine !== generation;
     try {
       // Prompted before the token is spent, so a denied mic costs nothing.
+      const unavailable = micUnavailable();
+      if (unavailable) throw new Error(unavailable);
       micStream = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
       if (abandoned()) return stop();
 

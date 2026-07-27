@@ -138,6 +138,35 @@ describe('createVoiceSession', () => {
       assert.equal(session.state, 'idle');
     });
 
+    it('says what to do about an insecure page instead of throwing on undefined', async () => {
+      // A phone on http://192.168.x.x has no navigator.mediaDevices at all.
+      env.restore();
+      env = installMediaStack({ mediaDevices: false, secureContext: false });
+      session = createVoiceSession();
+      record(session);
+
+      await session.start();
+
+      assert.match(of('error')[0].message, /secure page/);
+      assert.match(of('error')[0].message, /dev:lan/);
+      assert.equal(env.secretRequests.length, 0, 'a mic we cannot ask for must not spend a token');
+      assert.equal(session.state, 'idle');
+    });
+
+    it('reports a secure browser that still withholds capture', async () => {
+      // An in-app webview: secure origin, no mediaDevices — https:// advice
+      // would be a lie here.
+      env.restore();
+      env = installMediaStack({ mediaDevices: false });
+      session = createVoiceSession();
+      record(session);
+
+      await session.start();
+
+      assert.match(of('error')[0].message, /won’t hand over a microphone/);
+      assert.equal(session.connected, false);
+    });
+
     it('reports a proxy that will not mint, and releases the mic', async () => {
       env.secretStatus = 502;
       await session.start();

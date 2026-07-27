@@ -14,8 +14,17 @@
  * @param {boolean} [options.channelOpens]  false models a call that negotiates
  *   but whose events channel never comes up — the peer answers, and nothing
  *   after that ever arrives.
+ * @param {boolean} [options.mediaDevices]  false models a browser that doesn't
+ *   expose navigator.mediaDevices — a phone on a plain http:// LAN address.
+ * @param {boolean} [options.secureContext]
  */
-export function installMediaStack({ sdpStatus = 200, micRejects = null, channelOpens = true } = {}) {
+export function installMediaStack({
+  sdpStatus = 200,
+  micRejects = null,
+  channelOpens = true,
+  mediaDevices = true,
+  secureContext = true,
+} = {}) {
   const saved = new Map();
   const state = {
     peers: [],
@@ -139,7 +148,7 @@ export function installMediaStack({ sdpStatus = 200, micRejects = null, channelO
     close() { this.closed = true; }
   }
 
-  set('navigator', {
+  set('navigator', mediaDevices ? {
     mediaDevices: {
       getUserMedia: async (constraints) => {
         if (micRejects) throw new Error(micRejects);
@@ -147,7 +156,9 @@ export function installMediaStack({ sdpStatus = 200, micRejects = null, channelO
         return new FakeStream({ mic: true });
       },
     },
-  });
+  } : {});
+
+  set('isSecureContext', secureContext);
 
   set('AudioContext', FakeAudioContext);
   set('RTCPeerConnection', FakePeerConnection);
