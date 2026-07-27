@@ -118,6 +118,10 @@ three-d-stage {
   color: rgba(255, 255, 255, .92);
   text-align: center;
   text-wrap: pretty;
+  /* The transcript arrives with its own line breaks; the default would
+     collapse every one of them into a space and run the answer together. */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
   text-shadow: 0 1px 24px rgba(7, 8, 12, .95), 0 1px 4px rgba(7, 8, 12, .9);
   opacity: 0;
   transition: opacity .45s;
@@ -127,6 +131,19 @@ three-d-stage {
 #caption::-webkit-scrollbar { display: none; }
 #caption.visible { opacity: 1; pointer-events: auto; }
 #caption.error { color: #ff9b9b; }
+
+/* The inline markdown ui/hud.js renders when the model reaches for it anyway. */
+#caption strong { font-weight: 620; }
+#caption em { font-style: italic; }
+#caption s { opacity: .6; }
+#caption code {
+  font: 500 .9em/1.5 var(--mono);
+  background: rgba(255, 255, 255, .1);
+  border-radius: 5px;
+  padding: .1em .34em;
+  /* Undo the parent's pre-wrap for spans that are already one line. */
+  white-space: pre;
+}
 
 /* --- composer ------------------------------------------------------------- */
 

@@ -81,6 +81,21 @@ describe('POST /api/session', () => {
     });
   });
 
+  it('rejects valid JSON that is not an object with a 400, not a 502', async () => {
+    const { stub, middleware } = await api();
+    after(() => stub.close());
+
+    await withServer(middleware, async (request) => {
+      for (const raw of ['null', '"ballad"', '42']) {
+        const { status, body } = await request('/api/session', post(raw));
+        // `null` in particular used to reach the destructuring in
+        // mintClientSecret and come back as a 502 blaming OpenAI.
+        assert.equal(status, 400, `${raw} should be a 400`);
+        assert.equal(body.error, 'malformed request body');
+      }
+    });
+  });
+
   it('refuses a body far larger than a model id and a voice name', async () => {
     const { stub, middleware } = await api();
     after(() => stub.close());

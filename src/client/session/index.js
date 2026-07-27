@@ -47,6 +47,12 @@ export function createVoiceSession({ model, voice } = {}) {
 
   let state = 'idle';
   let connecting = false;
+  /* Dialling spans a permission prompt, a mint and a handshake, and stop() can
+     land in the middle of any of them — a `pagehide`, or the page redialling on
+     a new voice. Every stop() retires the generation start() is building, so
+     the loser tidies up after itself instead of finishing into a torn-down
+     session. */
+  let generation = 0;
 
   function setState(next) {
     if (state === next) return;
@@ -76,11 +82,15 @@ export function createVoiceSession({ model, voice } = {}) {
   async function start() {
     if (call || connecting) return;
     connecting = true;
+    const mine = ++generation;
+    const abandoned = () => mine !== generation;
     try {
       // Prompted before the token is spent, so a denied mic costs nothing.
       micStream = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
+      if (abandoned()) return stop();
 
       const secret = await fetchClientSecret({ model: current, voice: currentVoice });
+      if (abandoned()) return stop();
       // The proxy has the last word on both — it falls back to its own defaults
       // for anything it doesn't recognise.
       current = secret.model ?? current;
@@ -98,6 +108,9 @@ export function createVoiceSession({ model, voice } = {}) {
         micStream,
         onEvent: events.handle,
         onTrack: (stream) => {
+          // Arrives on a WebRTC event rather than in the chain below, so a
+          // hangup can land first — and there'd be no audio element left.
+          if (abandoned()) return;
           audioEl.srcObject = stream;
           outAnalyser = createAnalyser(audio, stream);
         },
@@ -107,6 +120,7 @@ export function createVoiceSession({ model, voice } = {}) {
           stop();
         },
       });
+      if (abandoned()) return stop();
 
       meter.start();
       setState('listening');
@@ -119,6 +133,7 @@ export function createVoiceSession({ model, voice } = {}) {
   }
 
   function stop() {
+    generation++; // retires any dial still in flight
     const closing = call;
     call = null; // before close(), so onClose knows this teardown is ours
     meter.stop();

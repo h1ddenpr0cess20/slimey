@@ -99,6 +99,10 @@ session.on('user', (text) => hud.showUser(text));
 
 session.on('error', ({ message }) => {
   hud.showError(message);
+  // A dial that never got as far as 'listening' leaves the session at 'idle',
+  // so no 'state' arrives to clear the chip — and it would sit on the
+  // 'connecting' this failure just ended.
+  hud.setState(orb.state);
   controls.sync();
 });
 
