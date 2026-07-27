@@ -162,6 +162,7 @@ while the model's track is live, `idle` when there is no call.
 'user'   a completed transcript of what the person said
 'level'  0..1 sustained amplitude, per frame
 'pulse'  0..1 transient, one per discrete event
+'busy'   whether a response is in flight
 'done'   { model, usage }
 'error'  { message }
 ```

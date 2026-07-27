@@ -19,7 +19,7 @@ describe('createVoiceSession', () => {
 
   function record(s) {
     events = [];
-    for (const name of ['state', 'text', 'user', 'level', 'pulse', 'done', 'error']) {
+    for (const name of ['state', 'text', 'user', 'level', 'pulse', 'busy', 'done', 'error']) {
       s.on(name, (payload) => events.push([name, payload]));
     }
   }
@@ -227,6 +227,21 @@ describe('createVoiceSession', () => {
         { role: 'user', content: 'what are you?' },
         { role: 'assistant', content: 'A slime!' },
       ]);
+    });
+
+    it('announces a response starting and finishing, not just its state', () => {
+      // Both of these land inside one 'thinking': speech_stopped already put
+      // the session there, and setState won't re-announce a state it is in.
+      // Anything drawing itself from `busy` — the send button — hears nothing
+      // at all unless the session says so separately.
+      peer().channel.deliver({ type: 'input_audio_buffer.speech_stopped' });
+      peer().channel.deliver({ type: 'response.created' });
+      assert.deepEqual(of('busy'), [true]);
+      assert.equal(session.busy, true);
+
+      peer().channel.deliver({ type: 'response.done', response: {} });
+      assert.deepEqual(of('busy'), [true, false]);
+      assert.equal(session.busy, false);
     });
 
     it('emits a level every frame', () => {

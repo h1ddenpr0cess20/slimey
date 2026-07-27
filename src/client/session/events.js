@@ -14,6 +14,15 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
   let responding = false;
   let transcript = '';
 
+  /* Announced rather than just recorded. A response can begin and end well
+     inside a single 'listening' or 'thinking', so anything drawing itself from
+     `busy` — the send button — would never hear about it on 'state' alone. */
+  function setResponding(next) {
+    if (responding === next) return;
+    responding = next;
+    emit('busy', next);
+  }
+
   function handle(event) {
     switch (event.type) {
       case 'input_audio_buffer.speech_started':
@@ -27,7 +36,7 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
         break;
 
       case 'response.created':
-        responding = true;
+        setResponding(true);
         // Audio drives sustain from here on; impulses are reserved for the two
         // moments a turn changes hands, where a discrete wobble reads as a beat.
         emit('pulse', 0.32);
@@ -57,7 +66,7 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
         break;
 
       case 'response.done': {
-        responding = false;
+        setResponding(false);
         const response = event.response ?? {};
         if (transcript) messages.push({ role: 'assistant', content: transcript });
         transcript = '';
@@ -79,7 +88,7 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
     handle,
     get responding() { return responding; },
     reset() {
-      responding = false;
+      setResponding(false);
       transcript = '';
     },
   };

@@ -133,9 +133,11 @@ export function createSlimeOrb({ stage, THREE }) {
   return {
     get state() { return state; },
 
-    /** idle | listening | thinking | speaking. Unknown names are ignored. */
+    /** idle | listening | thinking | speaking. Unknown names are ignored —
+     *  hasOwn rather than a truth test, because `MODES.constructor` is truthy
+     *  and taking it as a mode turns every channel into NaN, permanently. */
     setState(next) {
-      if (!MODES[next] || next === state) return;
+      if (!Object.hasOwn(MODES, next) || next === state) return;
       state = next;
       mode = MODES[next];
       if (next === 'idle' || next === 'thinking') sustain = 0;

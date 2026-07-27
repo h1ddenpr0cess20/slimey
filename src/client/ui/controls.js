@@ -83,11 +83,13 @@ export function createControls({
       return { model: selectedModel, voice: voiceEl.value };
     },
 
-    /** No catalog, no call — the mic stays locked. */
+    /** No catalog, no call — the mic stays locked. `disabled` rather than the
+     *  dial-in-flight flag, which toggleMic() clears in its own finally: a
+     *  click that was already in the air would otherwise unlock it for good. */
     catalogUnavailable() {
       modelEl.replaceChildren(new Option('unavailable', ''));
       voiceEl.replaceChildren(new Option('—', ''));
-      micEl.dataset.busy = '';
+      micEl.disabled = true;
     },
   };
 }

@@ -212,7 +212,8 @@ three-d-stage {
   color: var(--void);
   box-shadow: 0 0 0 4px rgba(56, 242, 182, .14);
 }
-#mic[data-busy] { opacity: .5; cursor: default; }
+/* Dialling, and no catalog to dial with — both read as "not right now". */
+#mic[data-busy], #mic:disabled { opacity: .5; cursor: default; }
 #mic svg { display: block; }
 
 #send {

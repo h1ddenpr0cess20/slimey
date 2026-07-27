@@ -25,7 +25,17 @@ export function createStaticMiddleware(root) {
   const base = root.endsWith(sep) ? root : root + sep;
 
   async function read(path) {
-    const file = join(base, normalize(path));
+    let name;
+    try {
+      // A URL path is escaped: `public/my icon.png` arrives as `my%20icon.png`
+      // and never matches a file until it's decoded. Traversal is still caught
+      // below, since normalize() and the prefix check both run on the result.
+      name = decodeURIComponent(path);
+    } catch {
+      return null; // a malformed %-escape names nothing we have
+    }
+
+    const file = join(base, normalize(name));
     // normalize() collapses any ../ before it can escape the build directory.
     if (!file.startsWith(base)) return null;
     try {

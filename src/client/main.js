@@ -92,6 +92,10 @@ session.on('state', (state) => {
   controls.sync();
 });
 
+// A response starting doesn't move the state — 'thinking' is already where
+// speech_stopped left it — so the composer has to hear about it separately.
+session.on('busy', () => controls.sync());
+
 session.on('level', (level) => orb.setLevel(level));
 session.on('pulse', (weight) => orb.pulse(weight));
 session.on('text', (chunk) => hud.appendCaption(chunk));

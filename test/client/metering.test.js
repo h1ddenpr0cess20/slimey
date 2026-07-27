@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import { amplitude, createMeter } from '../../src/client/session/metering.js';
+import { amplitude, createAnalyser, createMeter } from '../../src/client/session/metering.js';
 
 /** An AnalyserNode's only relevant behaviour: it fills the buffer you hand it. */
 function fakeAnalyser(samples) {
@@ -12,6 +12,25 @@ function fakeAnalyser(samples) {
     },
   };
 }
+
+describe('createAnalyser', () => {
+  it('holds on to the source it built', () => {
+    // Nothing here connects to the destination, and connections only point
+    // downstream — so a source the graph is the only reference to is one the
+    // engine may collect, and the meter would read silence from then on.
+    const source = { connect() { this.connected = true; } };
+    const audio = {
+      createAnalyser: () => ({ fftSize: 2048, smoothingTimeConstant: 0 }),
+      createMediaStreamSource: () => source,
+    };
+
+    const node = createAnalyser(audio, {});
+
+    assert.equal(node.source, source, 'the source node is unreferenced');
+    assert.equal(source.connected, true);
+    assert.equal(node.buffer.length, node.fftSize);
+  });
+});
 
 describe('amplitude', () => {
   it('is zero for silence', () => {

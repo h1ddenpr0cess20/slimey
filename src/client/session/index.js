@@ -10,6 +10,7 @@
  *   'user'   a completed transcript of what the person said
  *   'level'  0..1 sustained amplitude — mic while listening, model while speaking
  *   'pulse'  0..1 transient — a discrete event worth a wobble
+ *   'busy'   whether a response is in flight
  *   'done'   { model, usage }
  *   'error'  { message }
  *

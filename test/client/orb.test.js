@@ -12,6 +12,7 @@ import { describe, it } from 'node:test';
 import * as THREE from 'three';
 
 import { createDeformer } from '../../src/client/orb/deform.js';
+import { createSlimeOrb } from '../../src/client/orb/index.js';
 import { createLobes } from '../../src/client/orb/lobes.js';
 import { ENERGY_GAIN, MODES } from '../../src/client/orb/modes.js';
 import { createPalette } from '../../src/client/orb/palette.js';
@@ -240,5 +241,34 @@ describe('createDeformer', () => {
         `wobble ${wobble} scale ${scale} produced a non-finite vertex`,
       );
     }
+  });
+});
+
+describe('createSlimeOrb', () => {
+  /* No renderer and no document, so the environment map quietly gives up —
+     which is what it is written to do, and all this needs is the geometry. */
+  const stubStage = () => ({ _scene: {}, _renderer: null, setObject() {} });
+
+  it('ignores a state that is not one of the four', () => {
+    const orb = createSlimeOrb({ stage: stubStage(), THREE });
+    orb.setState('speaking');
+
+    // `constructor` and `__proto__` are the ones a truth test lets through:
+    // both are truthy on any object literal, and interpolating towards one
+    // turns every channel into NaN and never recovers.
+    for (const junk of ['nonsense', 'constructor', '__proto__', 'toString']) {
+      orb.setState(junk);
+      assert.equal(orb.state, 'speaking', `${junk} was taken for a mode`);
+    }
+  });
+
+  it('clamps what it is handed, so a bad level cannot escape the range', () => {
+    const orb = createSlimeOrb({ stage: stubStage(), THREE });
+    assert.doesNotThrow(() => {
+      orb.setLevel(4);
+      orb.setLevel(-1);
+      orb.pulse(9);
+      orb.pulse(-3);
+    });
   });
 });
