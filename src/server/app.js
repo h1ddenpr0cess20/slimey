@@ -6,6 +6,7 @@
  */
 
 import { createServer } from 'node:http';
+import { createServer as createSecureServer } from 'node:https';
 import { fileURLToPath } from 'node:url';
 
 import { createApiMiddleware } from './api.js';
@@ -35,6 +36,9 @@ export function chain(...middleware) {
   };
 }
 
-export function createApp(config = loadConfig(), { root = DIST } = {}) {
-  return createServer(chain(createApiMiddleware(config), createStaticMiddleware(root)));
+/** `tls` is a { key, cert } pair — see src/server/tls.js. Without one the
+ *  server is HTTP, which is all `localhost` ever needs. */
+export function createApp(config = loadConfig(), { root = DIST, tls = null } = {}) {
+  const handle = chain(createApiMiddleware(config), createStaticMiddleware(root));
+  return tls ? createSecureServer(tls, handle) : createServer(handle);
 }

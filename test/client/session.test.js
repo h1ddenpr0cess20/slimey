@@ -148,7 +148,7 @@ describe('createVoiceSession', () => {
       await session.start();
 
       assert.match(of('error')[0].message, /secure page/);
-      assert.match(of('error')[0].message, /https:\/\//);
+      assert.match(of('error')[0].message, /dev:lan/);
       assert.equal(env.secretRequests.length, 0, 'a mic we cannot ask for must not spend a token');
       assert.equal(session.state, 'idle');
     });
