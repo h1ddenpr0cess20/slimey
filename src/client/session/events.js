@@ -14,11 +14,24 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
   let responding = false;
   let transcript = '';
 
+  function flush() {
+    if (transcript) messages.push({ role: 'assistant', content: transcript });
+    transcript = '';
+  }
+
+  // A response can begin and end inside one 'thinking', so 'state' won't carry this.
+  function setResponding(next) {
+    if (responding === next) return;
+    responding = next;
+    emit('busy', next);
+  }
+
   function handle(event) {
     switch (event.type) {
       case 'input_audio_buffer.speech_started':
-        // Barge-in: the server truncates its own playback, we just follow.
-        transcript = '';
+        // Barge-in: the server truncates its own playback, we just follow. What
+        // it had already said was heard, so it is logged rather than dropped.
+        flush();
         setState('listening');
         break;
 
@@ -27,7 +40,7 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
         break;
 
       case 'response.created':
-        responding = true;
+        setResponding(true);
         // Audio drives sustain from here on; impulses are reserved for the two
         // moments a turn changes hands, where a discrete wobble reads as a beat.
         emit('pulse', 0.32);
@@ -57,10 +70,9 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
         break;
 
       case 'response.done': {
-        responding = false;
+        setResponding(false);
         const response = event.response ?? {};
-        if (transcript) messages.push({ role: 'assistant', content: transcript });
-        transcript = '';
+        flush();
         if (response.status === 'failed') {
           fail(response.status_details?.error?.message ?? 'the response failed');
         }
@@ -79,7 +91,7 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
     handle,
     get responding() { return responding; },
     reset() {
-      responding = false;
+      setResponding(false);
       transcript = '';
     },
   };

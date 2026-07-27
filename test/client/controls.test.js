@@ -191,8 +191,29 @@ describe('createControls', () => {
 
     it('locks the mic when there is no catalog to dial with', () => {
       controls.catalogUnavailable();
-      assert.equal(page.$('#mic').hasAttribute('data-busy'), true);
+      assert.equal(page.$('#mic').disabled, true);
       assert.equal(page.$('#model').textContent, 'unavailable');
+    });
+
+    it('keeps the mic locked through a click that was already in the air', async () => {
+      // The catalog request and a hopeful first click race each other; the
+      // dial-in-flight flag is cleared by toggleMic's own finally, so a lock
+      // sharing it would come off with that click and never go back on.
+      let release;
+      const gate = new Promise((r) => { release = r; });
+      const slow = createControls({
+        root: page.document,
+        getStatus: () => status,
+        onMicToggle: async () => { await gate; },
+        onSubmit: () => {}, onModelChange: () => {}, onVoiceChange: () => {}, onCancel: () => {},
+      });
+
+      const dialling = slow.toggleMic();
+      slow.catalogUnavailable();   // the catalog request loses the race
+      release();
+      await dialling;
+
+      assert.equal(page.$('#mic').disabled, true, 'a mic with no catalog must stay locked');
     });
   });
 

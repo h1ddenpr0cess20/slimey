@@ -20,7 +20,9 @@ export function createAnalyser(audio, stream) {
   const node = audio.createAnalyser();
   node.fftSize = 1024;
   node.smoothingTimeConstant = 0.4;
-  audio.createMediaStreamSource(stream).connect(node);
+  // Kept: nothing here reaches the destination, so an unreferenced source is collectable.
+  node.source = audio.createMediaStreamSource(stream);
+  node.source.connect(node);
   // Parked on the node so the meter loop doesn't reallocate 60 times a second.
   node.buffer = new Float32Array(node.fftSize);
   return node;

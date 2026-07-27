@@ -127,14 +127,30 @@ describe('transcripts', () => {
     assert.deepEqual(h.messages, []);
   });
 
-  it('drops the in-flight transcript when the person barges in', () => {
+  it('keeps what the slime got out before the person barged in', () => {
     h.feed(
       { type: 'response.output_text.delta', delta: 'I was saying' },
       { type: 'input_audio_buffer.speech_started' },
+      { type: 'response.done', response: { status: 'cancelled' } },
+    );
+    // It was said out loud and heard, and the server keeps the truncated item
+    // in its own conversation — a log that drops it disagrees with the model.
+    assert.deepEqual(h.messages, [{ role: 'assistant', content: 'I was saying' }]);
+  });
+
+  it('logs an interrupted turn once, not again at response.done', () => {
+    h.feed(
+      { type: 'response.output_text.delta', delta: 'I was saying' },
+      { type: 'input_audio_buffer.speech_started' },
+      { type: 'response.done', response: { status: 'cancelled' } },
+      { type: 'response.created' },
+      { type: 'response.output_text.delta', delta: 'You were saying?' },
       { type: 'response.done', response: {} },
     );
-    // The interrupted half-sentence never becomes a message.
-    assert.deepEqual(h.messages, []);
+    assert.deepEqual(h.messages, [
+      { role: 'assistant', content: 'I was saying' },
+      { role: 'assistant', content: 'You were saying?' },
+    ]);
   });
 });
 

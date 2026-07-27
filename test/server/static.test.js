@@ -16,6 +16,9 @@ describe('static hosting', () => {
     await mkdir(join(root, 'assets'));
     await writeFile(join(root, 'index.html'), '<!DOCTYPE html><title>orb</title>');
     await writeFile(join(root, 'assets', 'index-abc123.css'), 'body{}');
+    // Anything dropped in public/ ships under whatever name it had.
+    await writeFile(join(root, 'a slime.svg'), '<svg/>');
+    await writeFile(join(root, 'SLIME.PNG'), 'png');
     middleware = createStaticMiddleware(root);
   });
 
@@ -25,6 +28,38 @@ describe('static hosting', () => {
       assert.equal(status, 200);
       assert.match(headers.get('content-type'), /text\/html/);
       assert.match(body, /orb/);
+    });
+  });
+
+  it('types a file by its extension whatever case it is in', async () => {
+    await withServer(middleware, async (request) => {
+      const { headers } = await request('/SLIME.PNG');
+      assert.match(headers.get('content-type'), /image\/png/);
+    });
+  });
+
+  it('decodes the escapes a browser puts in the path', async () => {
+    await withServer(middleware, async (request) => {
+      // `public/a slime.svg` is only ever requested as `a%20slime.svg`, and
+      // matching that against the filesystem verbatim finds nothing.
+      const { status, body } = await request('/a%20slime.svg');
+      assert.equal(status, 200);
+      assert.equal(body, '<svg/>');
+    });
+  });
+
+  it('refuses to walk out of the build directory through an escape either', async () => {
+    await withServer(middleware, async (request) => {
+      // Decoding happens before normalize() and the prefix check, not after.
+      const { body } = await request('/%2e%2e%2f%2e%2e%2fetc%2fpasswd');
+      assert.match(body, /orb/, 'anything outside the root falls back to the entry document');
+    });
+  });
+
+  it('answers a malformed escape rather than throwing on it', async () => {
+    await withServer(middleware, async (request) => {
+      const { status } = await request('/%zz.css');
+      assert.equal(status, 404);
     });
   });
 

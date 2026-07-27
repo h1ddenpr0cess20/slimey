@@ -25,7 +25,15 @@ export function createStaticMiddleware(root) {
   const base = root.endsWith(sep) ? root : root + sep;
 
   async function read(path) {
-    const file = join(base, normalize(path));
+    // `my icon.png` arrives as `my%20icon.png`; normalize() below runs on the result.
+    let name;
+    try {
+      name = decodeURIComponent(path);
+    } catch {
+      return null;
+    }
+
+    const file = join(base, normalize(name));
     // normalize() collapses any ../ before it can escape the build directory.
     if (!file.startsWith(base)) return null;
     try {
@@ -47,7 +55,7 @@ export function createStaticMiddleware(root) {
     if (!found) return next();
 
     res.writeHead(200, {
-      'content-type': MIME[extname(found.file)] ?? 'application/octet-stream',
+      'content-type': MIME[extname(found.file).toLowerCase()] ?? 'application/octet-stream',
       'cache-control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
       'content-length': found.body.length,
     });

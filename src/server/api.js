@@ -28,7 +28,9 @@ async function readJSON(req) {
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
-  return JSON.parse(Buffer.concat(chunks).toString());
+  const body = JSON.parse(Buffer.concat(chunks).toString());
+  if (body === null || typeof body !== 'object') throw new Error('body is not an object');
+  return body;
 }
 
 export function createApiMiddleware(config) {

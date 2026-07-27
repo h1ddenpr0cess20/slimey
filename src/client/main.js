@@ -45,6 +45,9 @@ const controls = createControls({
     hud.setState('connecting');
     hud.clearCaption();
     await session.start();
+    // A pick that landed while this was in the air found no live call to hang
+    // up, so redial() dropped it. Deferred past toggleMic's own lock.
+    if (session.stale) setTimeout(redial, 0);
   },
 
   onSubmit(text) {
@@ -92,6 +95,9 @@ session.on('state', (state) => {
   controls.sync();
 });
 
+// A response can start and finish inside one 'thinking', so 'state' won't carry it.
+session.on('busy', () => controls.sync());
+
 session.on('level', (level) => orb.setLevel(level));
 session.on('pulse', (weight) => orb.pulse(weight));
 session.on('text', (chunk) => hud.appendCaption(chunk));
@@ -99,6 +105,7 @@ session.on('user', (text) => hud.showUser(text));
 
 session.on('error', ({ message }) => {
   hud.showError(message);
+  hud.setState(orb.state); // a failed dial never leaves 'idle', so no 'state' clears the chip
   controls.sync();
 });
 

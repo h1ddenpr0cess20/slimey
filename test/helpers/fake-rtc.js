@@ -7,7 +7,15 @@
  * otherwise be driven by OpenAI.
  */
 
-export function installMediaStack({ sdpStatus = 200, micRejects = null } = {}) {
+/**
+ * @param {object} [options]
+ * @param {number} [options.sdpStatus]
+ * @param {string} [options.micRejects]
+ * @param {boolean} [options.channelOpens]  false models a call that negotiates
+ *   but whose events channel never comes up — the peer answers, and nothing
+ *   after that ever arrives.
+ */
+export function installMediaStack({ sdpStatus = 200, micRejects = null, channelOpens = true } = {}) {
   const saved = new Map();
   const state = {
     peers: [],
@@ -53,14 +61,24 @@ export function installMediaStack({ sdpStatus = 200, micRejects = null } = {}) {
       this.readyState = 'connecting';
       this.sent = [];
       this.closed = false;
-      this._listeners = [];
+      this._listeners = new Map();
     }
-    addEventListener(_type, fn) { this._listeners.push(fn); }
+    addEventListener(type, fn) {
+      if (!this._listeners.has(type)) this._listeners.set(type, []);
+      this._listeners.get(type).push(fn);
+    }
+    _fire(type, event) { (this._listeners.get(type) ?? []).forEach((fn) => fn(event)); }
     send(data) { this.sent.push(JSON.parse(data)); }
     close() { this.closed = true; this.readyState = 'closed'; }
+    /** SCTP settling, a beat behind the SDP answer. */
+    open() {
+      if (this.readyState === 'open') return;
+      this.readyState = 'open';
+      this._fire('open', {});
+    }
     /** Deliver a server event, as the oai-events channel would. */
-    deliver(event) { this._listeners.forEach((fn) => fn({ data: JSON.stringify(event) })); }
-    deliverRaw(data) { this._listeners.forEach((fn) => fn({ data })); }
+    deliver(event) { this._fire('message', { data: JSON.stringify(event) }); }
+    deliverRaw(data) { this._fire('message', { data }); }
   }
 
   class FakePeerConnection {
@@ -82,14 +100,24 @@ export function installMediaStack({ sdpStatus = 200, micRejects = null } = {}) {
     createDataChannel() { this.channel = new FakeChannel(); return this.channel; }
     async createOffer() { return { type: 'offer', sdp: 'v=0 fake offer' }; }
     async setLocalDescription(desc) { this.localDescription = desc; }
-    async setRemoteDescription(desc) { this.remoteDescription = desc; }
+    async setRemoteDescription(desc) {
+      this.remoteDescription = desc;
+      // The answer is where a real call starts settling: DTLS, then SCTP, then
+      // the channel — all of it after this resolves, and over a network, so a
+      // task rather than a microtask. Anything that assumes the channel is up
+      // the moment the answer is applied has to be wrong here too.
+      if (channelOpens) setTimeout(() => this.open(), 0);
+    }
+    // Matches the spec: close() moves the state to "closed" without firing
+    // connectionstatechange. Tests that want that event call drop('closed').
     close() { this.closed = true; this.connectionState = 'closed'; }
 
     /** Drive the handshake to completion, the way a real answer would. */
     open() {
-      this.channel.readyState = 'open';
+      if (this.closed) return;
       this.connectionState = 'connected';
       this.ontrack?.({ streams: [new FakeStream()] });  // inbound: the model's voice
+      this.channel.open();
     }
     /** Simulate the network going away underneath a live call. */
     drop(reason = 'failed') {

@@ -19,7 +19,7 @@ describe('createVoiceSession', () => {
 
   function record(s) {
     events = [];
-    for (const name of ['state', 'text', 'user', 'level', 'pulse', 'done', 'error']) {
+    for (const name of ['state', 'text', 'user', 'level', 'pulse', 'busy', 'done', 'error']) {
       s.on(name, (payload) => events.push([name, payload]));
     }
   }
@@ -27,12 +27,9 @@ describe('createVoiceSession', () => {
   const of = (name) => events.filter(([e]) => e === name).map(([, p]) => p);
   const peer = () => env.peers.at(-1);
 
-  /** start() resolves once the SDP answer is applied; the data channel opening
-   *  is a separate event, and it is what `connected` actually waits on. */
-  async function dial() {
-    await session.start();
-    peer().open();
-  }
+  /** start() resolves once the call can actually carry a conversation item —
+   *  the SDP answer, and then the events channel opening behind it. */
+  const dial = () => session.start();
 
   beforeEach(() => {
     env = installMediaStack();
@@ -112,6 +109,19 @@ describe('createVoiceSession', () => {
       await session.start();
       assert.equal(env.peers.length, 1);
     });
+
+    it('announces the call only once it can carry one', async () => {
+      const seen = [];
+      session.on('state', (s) => seen.push([s, session.connected]));
+
+      await dial();
+
+      // The SDP answer lands a beat before the events channel opens. Resolving
+      // in between would announce 'listening' while `connected` still read
+      // false — and everything that redraws on a state change would lock the
+      // typed path shut for a call that was already up.
+      assert.deepEqual(seen, [['listening', true]]);
+    });
   });
 
   describe('when starting fails', () => {
@@ -147,6 +157,36 @@ describe('createVoiceSession', () => {
 
       assert.match(of('error')[0].message, /realtime handshake failed \(401\)/);
       assert.equal(session.connected, false);
+    });
+
+    it('closes the peer it had already opened', async () => {
+      env.restore();
+      env = installMediaStack({ sdpStatus: 401 });
+      session = createVoiceSession();
+      record(session);
+
+      await session.start();
+
+      // Nothing outside connect() ever had a handle on this one, so if it
+      // doesn't close itself its transceivers are held for the life of the page.
+      assert.ok(peer().closed, 'the abandoned peer connection is still open');
+    });
+
+    it('gives up on a call whose events channel never opens', async () => {
+      env.restore();
+      env = installMediaStack({ channelOpens: false });
+      session = createVoiceSession();
+      record(session);
+
+      const started = session.start();
+      await new Promise((resolve) => setTimeout(resolve, 0)); // reach the wait
+      peer().drop('failed');
+      await started;
+
+      assert.deepEqual(of('error'), [{ message: 'the call dropped before it was ready' }]);
+      assert.equal(session.connected, false);
+      assert.equal(session.state, 'idle');
+      assert.ok(env.micTracks.every((t) => t.stopped), 'the mic must not stay hot');
     });
 
     it('tears the whole stack down after a failure', async () => {
@@ -187,6 +227,21 @@ describe('createVoiceSession', () => {
         { role: 'user', content: 'what are you?' },
         { role: 'assistant', content: 'A slime!' },
       ]);
+    });
+
+    it('announces a response starting and finishing, not just its state', () => {
+      // Both of these land inside one 'thinking': speech_stopped already put
+      // the session there, and setState won't re-announce a state it is in.
+      // Anything drawing itself from `busy` — the send button — hears nothing
+      // at all unless the session says so separately.
+      peer().channel.deliver({ type: 'input_audio_buffer.speech_stopped' });
+      peer().channel.deliver({ type: 'response.created' });
+      assert.deepEqual(of('busy'), [true]);
+      assert.equal(session.busy, true);
+
+      peer().channel.deliver({ type: 'response.done', response: {} });
+      assert.deepEqual(of('busy'), [true, false]);
+      assert.equal(session.busy, false);
     });
 
     it('emits a level every frame', () => {
@@ -268,6 +323,55 @@ describe('createVoiceSession', () => {
       assert.equal(session.busy, true);
       session.stop();
       assert.equal(session.busy, false);
+    });
+  });
+
+  describe('a pick that lands mid-dial', () => {
+    it('marks the call stale, since redial() had no live call to hang up', async () => {
+      const started = session.start();
+      await new Promise((resolve) => setTimeout(resolve, 0)); // the secret is out
+      session.model = 'gpt-realtime-mini';
+      await started;
+
+      assert.equal(session.connected, true);
+      assert.equal(session.stale, true, 'the call is on a model the picker no longer shows');
+    });
+
+    it('is not stale merely because the proxy had the last word', async () => {
+      session.model = 'gpt-realtime-mini';
+      env.secret = { value: 'ek_test', model: 'gpt-realtime-2.1', voice: 'ballad' };
+
+      await dial();
+
+      // Redialling on the proxy's own substitution would never terminate.
+      assert.equal(session.stale, false);
+    });
+
+    it('is not stale once the redial has caught up', async () => {
+      const started = session.start();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      session.model = 'gpt-realtime-mini';
+      await started;
+
+      session.stop();
+      await dial();
+      assert.equal(session.stale, false);
+    });
+  });
+
+  describe('hanging up mid-dial', () => {
+    it('abandons a call nobody is waiting for any more', async () => {
+      // `pagehide` while the mic prompt is still up, or the page redialling on
+      // a freshly picked voice.
+      const started = session.start();
+      session.stop();
+      await started;
+
+      assert.ok(env.micTracks.every((t) => t.stopped), 'the mic must not stay hot');
+      assert.equal(env.peers.length, 0, 'a hung-up call must not go on to dial');
+      assert.equal(session.connected, false);
+      assert.equal(session.state, 'idle');
+      assert.equal(env.pendingFrames.size, 0, 'the meter must not keep spinning');
     });
   });
 

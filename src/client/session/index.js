@@ -10,6 +10,7 @@
  *   'user'   a completed transcript of what the person said
  *   'level'  0..1 sustained amplitude — mic while listening, model while speaking
  *   'pulse'  0..1 transient — a discrete event worth a wobble
+ *   'busy'   whether a response is in flight
  *   'done'   { model, usage }
  *   'error'  { message }
  *
@@ -47,6 +48,12 @@ export function createVoiceSession({ model, voice } = {}) {
 
   let state = 'idle';
   let connecting = false;
+  // stop() can land mid-dial. Bumping this retires the dial in flight.
+  let generation = 0;
+  // Bumped by the setters, snapshotted at mint: unequal means the pickers moved
+  // after the secret went out, and the live call is on settings nobody asked for.
+  let picked = 0;
+  let mintedPick = 0;
 
   function setState(next) {
     if (state === next) return;
@@ -76,11 +83,16 @@ export function createVoiceSession({ model, voice } = {}) {
   async function start() {
     if (call || connecting) return;
     connecting = true;
+    const mine = ++generation;
+    const abandoned = () => mine !== generation;
     try {
       // Prompted before the token is spent, so a denied mic costs nothing.
       micStream = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
+      if (abandoned()) return stop();
 
+      mintedPick = picked;
       const secret = await fetchClientSecret({ model: current, voice: currentVoice });
+      if (abandoned()) return stop();
       // The proxy has the last word on both — it falls back to its own defaults
       // for anything it doesn't recognise.
       current = secret.model ?? current;
@@ -98,6 +110,7 @@ export function createVoiceSession({ model, voice } = {}) {
         micStream,
         onEvent: events.handle,
         onTrack: (stream) => {
+          if (abandoned()) return; // a hangup can land between here and the chain below
           audioEl.srcObject = stream;
           outAnalyser = createAnalyser(audio, stream);
         },
@@ -107,6 +120,7 @@ export function createVoiceSession({ model, voice } = {}) {
           stop();
         },
       });
+      if (abandoned()) return stop();
 
       meter.start();
       setState('listening');
@@ -119,6 +133,7 @@ export function createVoiceSession({ model, voice } = {}) {
   }
 
   function stop() {
+    generation++; // retires any dial still in flight
     const closing = call;
     call = null; // before close(), so onClose knows this teardown is ours
     meter.stop();
@@ -156,11 +171,14 @@ export function createVoiceSession({ model, voice } = {}) {
     get busy() { return events.responding; },
     get state() { return state; },
     get model() { return current; },
-    set model(next) { current = next; },
+    set model(next) { current = next; picked++; },
     /** Both are pinned into the client secret, so changing either only takes
      *  effect on the next call — the page redials. */
     get voice() { return currentVoice; },
-    set voice(next) { currentVoice = next; },
+    set voice(next) { currentVoice = next; picked++; },
+    /** The live call was minted before the current pick — it is on the wrong
+     *  model or voice, and only another dial can fix that. */
+    get stale() { return !!call && picked !== mintedPick; },
     /** Manual barge-in — the VAD covers the spoken case on its own. */
     cancel() {
       if (events.responding) call?.send({ type: 'response.cancel' });

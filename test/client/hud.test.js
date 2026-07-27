@@ -80,4 +80,66 @@ describe('createHud', () => {
     hud.showError('second');
     assert.equal(page.$('#caption').textContent, 'second');
   });
+
+  /* The persona asks the model not to use markdown, because everything it
+     writes gets said out loud. It uses some anyway, and a caption that shows
+     the asterisks reads as a bug. */
+  describe('the markdown the model was told not to use', () => {
+    it('renders bold, emphasis and code as elements', () => {
+      hud.appendCaption('A **big** _wobbly_ `slime`!');
+      const caption = page.$('#caption');
+
+      assert.equal(caption.querySelector('strong').textContent, 'big');
+      assert.equal(caption.querySelector('em').textContent, 'wobbly');
+      assert.equal(caption.querySelector('code').textContent, 'slime');
+      assert.equal(caption.textContent, 'A big wobbly slime!');
+    });
+
+    it('nests one inside another', () => {
+      hud.appendCaption('**very _very_ slimy**');
+      assert.equal(page.$('#caption').querySelector('strong em').textContent, 'very');
+    });
+
+    it('formats a span whose halves arrive in different chunks', () => {
+      // Deltas break wherever the model's tokens break, which is routinely
+      // between a delimiter and its partner.
+      hud.appendCaption('I am a **sli');
+      assert.equal(page.$('#caption').querySelector('strong'), null);
+
+      hud.appendCaption('me**!');
+      assert.equal(page.$('#caption').querySelector('strong').textContent, 'slime');
+      assert.equal(page.$('#caption').textContent, 'I am a slime!');
+    });
+
+    it('leaves ordinary prose punctuation alone', () => {
+      hud.appendCaption('level_up_time costs 3 * 4 gold');
+      const caption = page.$('#caption');
+
+      assert.equal(caption.querySelector('em'), null);
+      assert.equal(caption.textContent, 'level_up_time costs 3 * 4 gold');
+    });
+
+    it('keeps the line breaks the model sent', () => {
+      // Rendered as breaks by `white-space: pre-wrap`; the job here is that
+      // they survive into the DOM rather than being collapsed on the way in.
+      hud.appendCaption('One thing.\n\nAnother thing.');
+      assert.equal(page.$('#caption').textContent, 'One thing.\n\nAnother thing.');
+    });
+
+    it('still never produces markup, inside a span or out', () => {
+      hud.appendCaption('**<img src=x onerror=alert(1)>** and `<b>bold</b>`');
+      const caption = page.$('#caption');
+
+      assert.equal(caption.querySelector('img'), null);
+      assert.equal(caption.querySelector('b'), null);
+      assert.equal(caption.querySelector('code').textContent, '<b>bold</b>');
+    });
+
+    it('starts each turn from an empty transcript', () => {
+      hud.appendCaption('**first**');
+      hud.clearCaption();
+      hud.appendCaption('second');
+      assert.equal(page.$('#caption').textContent, 'second');
+    });
+  });
 });
