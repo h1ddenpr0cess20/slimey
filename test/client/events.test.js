@@ -1,8 +1,3 @@
-/**
- * The realtime event mapping — the layer most exposed to OpenAI renaming
- * things, and the one that decides what the orb is doing.
- */
-
 import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
 
@@ -70,9 +65,6 @@ describe('turn taking', () => {
 });
 
 describe('event name aliases', () => {
-  // The GA names are response.output_*; some model snapshots still emit the
-  // older response.audio* spellings. Dropping either would silently stop the
-  // caption or freeze the orb mid-turn.
   const transcriptAliases = [
     'response.output_audio_transcript.delta',
     'response.audio_transcript.delta',
@@ -133,8 +125,6 @@ describe('transcripts', () => {
       { type: 'input_audio_buffer.speech_started' },
       { type: 'response.done', response: { status: 'cancelled' } },
     );
-    // It was said out loud and heard, and the server keeps the truncated item
-    // in its own conversation — a log that drops it disagrees with the model.
     assert.deepEqual(h.messages, [{ role: 'assistant', content: 'I was saying' }]);
   });
 
@@ -219,7 +209,6 @@ describe('responding', () => {
     h.handler.reset();
     assert.equal(h.handler.responding, false);
 
-    // The abandoned transcript must not resurface on the next call's first turn.
     h.feed({ type: 'response.done', response: {} });
     assert.deepEqual(h.messages, []);
   });

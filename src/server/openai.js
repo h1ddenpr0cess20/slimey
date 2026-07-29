@@ -1,18 +1,5 @@
-/**
- * The two OpenAI calls the proxy makes, and nothing else.
- *
- *   listRealtimeModels()  → the realtime-capable models this key can reach.
- *   mintClientSecret()    → a short-lived secret for one WebRTC call.
- *
- * Audio never comes through here. The browser negotiates SDP with OpenAI
- * directly using the secret this module mints.
- */
-
 import { sessionConfig } from './persona.js';
 
-/* Not every `*realtime*` model holds a conversation: the translate and whisper
-   tiers are streaming translation and speech-to-text, and picking one would
-   leave the orb listening to a slime that can't answer. */
 const NOT_CONVERSATIONAL = /translate|whisper|transcribe|tts/;
 
 export function createOpenAIClient({ baseUrl, apiKey, defaultModel, defaultVoice, voices, secretTtl }) {
@@ -32,8 +19,6 @@ export function createOpenAIClient({ baseUrl, apiKey, defaultModel, defaultVoice
     return body;
   }
 
-  /* The default first, then everything else the key can see — dated snapshots
-     and the older preview tiers sort under it. */
   function rank(id) {
     if (id === defaultModel) return 0;
     if (id.includes('preview')) return 2;
@@ -50,11 +35,7 @@ export function createOpenAIClient({ baseUrl, apiKey, defaultModel, defaultVoice
     },
 
     async mintClientSecret({ model, voice } = {}) {
-      // Only voices we know about get proxied through; anything else is a typo
-      // that would come back as an opaque 400 halfway through the handshake.
       const chosen = voices.includes(voice) ? voice : defaultVoice;
-      // Same reasoning for the model, which was going through unchecked: the
-      // picker only ever offers conversational realtime ids.
       const chosenModel = typeof model === 'string'
         && model.includes('realtime') && !NOT_CONVERSATIONAL.test(model)
         ? model

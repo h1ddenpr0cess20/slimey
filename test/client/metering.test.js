@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { amplitude, createAnalyser, createMeter } from '../../src/client/session/metering.js';
 
-/** An AnalyserNode's only relevant behaviour: it fills the buffer you hand it. */
 function fakeAnalyser(samples) {
   return {
     buffer: new Float32Array(samples.length),
@@ -15,9 +14,6 @@ function fakeAnalyser(samples) {
 
 describe('createAnalyser', () => {
   it('holds on to the source it built', () => {
-    // Nothing here connects to the destination, and connections only point
-    // downstream — so a source the graph is the only reference to is one the
-    // engine may collect, and the meter would read silence from then on.
     const source = { connect() { this.connected = true; } };
     const audio = {
       createAnalyser: () => ({ fftSize: 2048, smoothingTimeConstant: 0 }),
@@ -39,8 +35,6 @@ describe('amplitude', () => {
   });
 
   it('scales RMS by the speech gain', () => {
-    // A constant 0.1 signal has RMS 0.1; the gain lifts it to 0.7. The tolerance
-    // is float32's, since that is what an analyser actually hands over.
     const a = fakeAnalyser(new Float32Array(64).fill(0.1));
     assert.ok(Math.abs(amplitude(a, a.buffer) - 0.7) < 1e-6);
   });
@@ -77,7 +71,6 @@ describe('createMeter', () => {
     delete globalThis.cancelAnimationFrame;
   });
 
-  /** Run one frame: the pending callback re-registers itself as it runs. */
   const tick = () => {
     const [id, fn] = [...frames][0];
     frames.delete(id);
@@ -92,8 +85,6 @@ describe('createMeter', () => {
   });
 
   it('rises faster than it falls', () => {
-    // Attack .45, release .12 — what makes the surface track a voice instead of
-    // chasing it. A symmetric filter reads as latency.
     const loud = fakeAnalyser(new Float32Array(64).fill(1));
     let source = loud;
     const levels = [];
@@ -104,7 +95,6 @@ describe('createMeter', () => {
     const afterOneLoudFrame = levels.at(-1);
     assert.ok(Math.abs(afterOneLoudFrame - 0.45) < 1e-9);
 
-    // Settle high, then cut to silence and measure the first step down.
     for (let i = 0; i < 40; i++) tick();
     const settled = levels.at(-1);
     assert.ok(settled > 0.99);
@@ -167,7 +157,6 @@ describe('createMeter', () => {
     levels.length = 0;
     meter.start();
     tick();
-    // A fresh call must not inherit the previous call's loudness.
     assert.ok(Math.abs(levels[0] - 0.45) < 1e-9);
     meter.stop();
   });

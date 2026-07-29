@@ -1,11 +1,3 @@
-/**
- * The call lifecycle, against a faked media stack.
- *
- * Covers the parts that are miserable to reach by hand: a denied microphone, a
- * proxy that won't mint, a handshake that 4xxs, a call that drops mid-sentence,
- * and the teardown ordering that decides whether stop() re-enters itself.
- */
-
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
@@ -27,8 +19,6 @@ describe('createVoiceSession', () => {
   const of = (name) => events.filter(([e]) => e === name).map(([, p]) => p);
   const peer = () => env.peers.at(-1);
 
-  /** start() resolves once the call can actually carry a conversation item —
-   *  the SDP answer, and then the events channel opening behind it. */
   const dial = () => session.start();
 
   beforeEach(() => {
@@ -52,7 +42,6 @@ describe('createVoiceSession', () => {
     it('asks for the microphone before spending a token', async () => {
       env.secretStatus = 500;
       await session.start();
-      // The mic prompt comes first, so a refusal costs nothing.
       assert.equal(env.micTracks.length, 1);
       assert.equal(env.secretRequests.length, 1);
     });
@@ -116,10 +105,6 @@ describe('createVoiceSession', () => {
 
       await dial();
 
-      // The SDP answer lands a beat before the events channel opens. Resolving
-      // in between would announce 'listening' while `connected` still read
-      // false — and everything that redraws on a state change would lock the
-      // typed path shut for a call that was already up.
       assert.deepEqual(seen, [['listening', true]]);
     });
   });
@@ -139,7 +124,6 @@ describe('createVoiceSession', () => {
     });
 
     it('says what to do about an insecure page instead of throwing on undefined', async () => {
-      // A phone on http://192.168.x.x has no navigator.mediaDevices at all.
       env.restore();
       env = installMediaStack({ mediaDevices: false, secureContext: false });
       session = createVoiceSession();
@@ -154,8 +138,6 @@ describe('createVoiceSession', () => {
     });
 
     it('reports a secure browser that still withholds capture', async () => {
-      // An in-app webview: secure origin, no mediaDevices — https:// advice
-      // would be a lie here.
       env.restore();
       env = installMediaStack({ mediaDevices: false });
       session = createVoiceSession();
@@ -196,8 +178,6 @@ describe('createVoiceSession', () => {
 
       await session.start();
 
-      // Nothing outside connect() ever had a handle on this one, so if it
-      // doesn't close itself its transceivers are held for the life of the page.
       assert.ok(peer().closed, 'the abandoned peer connection is still open');
     });
 
@@ -208,7 +188,7 @@ describe('createVoiceSession', () => {
       record(session);
 
       const started = session.start();
-      await new Promise((resolve) => setTimeout(resolve, 0)); // reach the wait
+      await new Promise((resolve) => setTimeout(resolve, 0));
       peer().drop('failed');
       await started;
 
@@ -259,10 +239,6 @@ describe('createVoiceSession', () => {
     });
 
     it('announces a response starting and finishing, not just its state', () => {
-      // Both of these land inside one 'thinking': speech_stopped already put
-      // the session there, and setState won't re-announce a state it is in.
-      // Anything drawing itself from `busy` — the send button — hears nothing
-      // at all unless the session says so separately.
       peer().channel.deliver({ type: 'input_audio_buffer.speech_stopped' });
       peer().channel.deliver({ type: 'response.created' });
       assert.deepEqual(of('busy'), [true]);
@@ -300,6 +276,40 @@ describe('createVoiceSession', () => {
       });
     });
 
+    describe('muting', () => {
+      it('starts with the mic on', () => {
+        assert.equal(session.muted, false);
+        assert.ok(env.micTracks.every((t) => t.enabled !== false));
+      });
+
+      it('silences the track without touching the call', () => {
+        session.muted = true;
+
+        assert.equal(session.muted, true);
+        assert.ok(env.micTracks.every((t) => t.enabled === false), 'mic still live');
+        assert.equal(session.connected, true);
+        assert.ok(env.micTracks.every((t) => !t.stopped), 'mic track was released');
+        assert.equal(peer().closed, false);
+        assert.equal(peer().channel.closed, false);
+      });
+
+      it('turns back on, on the same call', () => {
+        session.muted = true;
+        session.muted = false;
+        assert.ok(env.micTracks.every((t) => t.enabled === true));
+        assert.equal(session.connected, true);
+      });
+
+      it('leaves the conversation where it was', () => {
+        peer().channel.deliver({
+          type: 'conversation.item.input_audio_transcription.completed',
+          transcript: 'before the mute',
+        });
+        session.muted = true;
+        assert.deepEqual(session.messages.map((m) => m.content), ['before the mute']);
+      });
+    });
+
     describe('cancel', () => {
       it('does nothing when the slime is not talking', () => {
         session.cancel();
@@ -327,6 +337,12 @@ describe('createVoiceSession', () => {
       assert.equal(env.pendingFrames.size, 0, 'meter still running');
     });
 
+    it('un-mutes, so the next call starts with the mic on', () => {
+      session.muted = true;
+      session.stop();
+      assert.equal(session.muted, false);
+    });
+
     it('settles the orb: level zero, state idle', () => {
       session.stop();
       assert.equal(of('level').at(-1), 0);
@@ -335,8 +351,6 @@ describe('createVoiceSession', () => {
     });
 
     it('does not re-enter when closing the peer fires a state change', () => {
-      // stop() nulls the call before closing it, so the connectionstatechange
-      // listener can tell our own hangup from a dropped connection.
       session.stop();
       peer().drop('closed');
       assert.deepEqual(of('error'), [], 'our own hangup must not look like a failure');
@@ -358,7 +372,7 @@ describe('createVoiceSession', () => {
   describe('a pick that lands mid-dial', () => {
     it('marks the call stale, since redial() had no live call to hang up', async () => {
       const started = session.start();
-      await new Promise((resolve) => setTimeout(resolve, 0)); // the secret is out
+      await new Promise((resolve) => setTimeout(resolve, 0));
       session.model = 'gpt-realtime-mini';
       await started;
 
@@ -372,7 +386,6 @@ describe('createVoiceSession', () => {
 
       await dial();
 
-      // Redialling on the proxy's own substitution would never terminate.
       assert.equal(session.stale, false);
     });
 
@@ -390,8 +403,6 @@ describe('createVoiceSession', () => {
 
   describe('hanging up mid-dial', () => {
     it('abandons a call nobody is waiting for any more', async () => {
-      // `pagehide` while the mic prompt is still up, or the page redialling on
-      // a freshly picked voice.
       const started = session.start();
       session.stop();
       await started;

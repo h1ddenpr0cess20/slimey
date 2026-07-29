@@ -1,11 +1,3 @@
-/**
- * Push a sphere's vertices out along the sum of the lobe sines.
- *
- * Shell and core run the same displacement with different constants — the core
- * uses the first three lobes at higher amplitude and runs its phase backwards,
- * so the two surfaces move together without moving identically.
- */
-
 export function createDeformer(THREE) {
   const v = new THREE.Vector3();
 

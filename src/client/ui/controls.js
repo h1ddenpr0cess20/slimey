@@ -1,11 +1,3 @@
-/**
- * The composer: mic, text field, send, and the two pickers.
- *
- * Knows how the controls look and when they're enabled; knows nothing about
- * calls. It reports intent through the callbacks it's handed and asks
- * `getStatus()` whenever it needs to redraw — main.js owns what those mean.
- */
-
 export function createControls({
   root = document,
   getStatus,
@@ -23,9 +15,12 @@ export function createControls({
   const micEl = root.querySelector('#mic');
 
   function sync() {
-    const { connected, busy } = getStatus();
-    micEl.setAttribute('aria-pressed', String(connected));
-    micEl.setAttribute('aria-label', connected ? 'Stop talking' : 'Start talking');
+    const { connected, busy, muted } = getStatus();
+    const live = connected && !muted;
+    micEl.setAttribute('aria-pressed', String(live));
+    micEl.setAttribute('aria-label',
+      !connected ? 'Start talking' : live ? 'Turn the microphone off' : 'Turn the microphone on');
+    micEl.classList.toggle('muted', connected && !live);
     promptEl.disabled = !connected;
     promptEl.placeholder = connected
       ? 'Or type, if speaking out loud is awkward…'
@@ -33,7 +28,6 @@ export function createControls({
     sendEl.disabled = !connected || busy;
   }
 
-  /** Dialling takes a round trip and a permission prompt; the mic locks for it. */
   async function toggleMic() {
     if ('busy' in micEl.dataset) return;
     micEl.dataset.busy = '';
@@ -45,7 +39,6 @@ export function createControls({
     }
   }
 
-  // The click is also the gesture that lets audio play and the mic prompt fire.
   micEl.addEventListener('click', toggleMic);
 
   composerEl.addEventListener('submit', (e) => {
@@ -59,8 +52,6 @@ export function createControls({
   modelEl.addEventListener('change', () => onModelChange(modelEl.value));
   voiceEl.addEventListener('change', () => onVoiceChange(voiceEl.value));
 
-  // Escape is barge-in for the typed path; speaking over the slime is handled
-  // by the server's VAD, which truncates its own playback.
   root.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') onCancel();
   });
@@ -70,8 +61,6 @@ export function createControls({
     toggleMic,
     focus: () => micEl.focus(),
 
-    /** @returns {{ model: string, voice: string }} what the pickers settled on —
-     *  the proxy's preferred model may not be one this key can actually reach. */
     setCatalog({ models, model, voices, voice }) {
       modelEl.replaceChildren(...models.map((m) => new Option(m.display_name ?? m.id, m.id)));
       const selectedModel = models.some((m) => m.id === model) ? model : models[0].id;
@@ -83,7 +72,6 @@ export function createControls({
       return { model: selectedModel, voice: voiceEl.value };
     },
 
-    /** `disabled`, not the dial-in-flight flag: toggleMic() clears that in its finally. */
     catalogUnavailable() {
       modelEl.replaceChildren(new Option('unavailable', ''));
       voiceEl.replaceChildren(new Option('—', ''));

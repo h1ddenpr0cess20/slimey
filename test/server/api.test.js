@@ -86,8 +86,6 @@ describe('POST /api/session', () => {
     after(() => stub.close());
 
     await withServer(middleware, async (request) => {
-      // The picker hides the translate and whisper tiers because they cannot
-      // hold a conversation. Nothing stopped a request naming one anyway.
       for (const model of ['gpt-realtime-translate', 'whisper-1-realtime', 'not-a-model', 42]) {
         const { body } = await request('/api/session', post({ model }));
         assert.equal(body.model, 'gpt-realtime-2.1', `${model} was minted as-is`);
@@ -105,8 +103,6 @@ describe('POST /api/session', () => {
     await withServer(middleware, async (request) => {
       for (const raw of ['null', '"ballad"', '42']) {
         const { status, body } = await request('/api/session', post(raw));
-        // `null` in particular used to reach the destructuring in
-        // mintClientSecret and come back as a 502 blaming OpenAI.
         assert.equal(status, 400, `${raw} should be a 400`);
         assert.equal(body.error, 'malformed request body');
       }
@@ -144,7 +140,6 @@ describe('routing', () => {
 
     await withServer(middleware, async (request) => {
       assert.equal((await request('/api/nope')).status, 404);
-      // Right path, wrong verb — still not a route.
       assert.equal((await request('/api/models', { method: 'POST' })).status, 404);
       assert.equal((await request('/api/session')).status, 404);
     });

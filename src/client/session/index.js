@@ -1,27 +1,3 @@
-/**
- * Conversation transport — the voice pipeline.
- *
- * A session owns the call and emits a small, transport-agnostic event
- * vocabulary. The page wires those events to the orb once; the orb never learns
- * what a WebRTC peer connection is.
- *
- *   'state'  'listening' | 'thinking' | 'speaking' | 'idle'
- *   'text'   a chunk of assistant transcript (rendered as caption)
- *   'user'   a completed transcript of what the person said
- *   'level'  0..1 sustained amplitude — mic while listening, model while speaking
- *   'pulse'  0..1 transient — a discrete event worth a wobble
- *   'busy'   whether a response is in flight
- *   'done'   { model, usage }
- *   'error'  { message }
- *
- * Swapping providers means writing a different module with this surface. The
- * page's wiring block and the orb do not change.
- *
- * Audio never touches the proxy. `/api/session` mints an ephemeral client
- * secret, the browser negotiates SDP with OpenAI directly, and the mic and the
- * model's voice both terminate here in the page.
- */
-
 import { fetchClientSecret } from '../api.js';
 import { createEmitter } from './emitter.js';
 import { createEventHandler } from './events.js';
@@ -32,16 +8,6 @@ const MIC_CONSTRAINTS = {
   audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
 };
 
-/**
- * Why the microphone can't be asked for at all, or null if it can.
- *
- * Browsers only expose `navigator.mediaDevices` on a secure origin, so a page
- * served over plain http:// doesn't have the namespace — not an empty one,
- * none at all. Reaching straight for getUserMedia there throws "Cannot read
- * properties of undefined", which is true and useless. The same check catches
- * the embedded browsers (in-app webviews) that withhold capture on an
- * otherwise secure page.
- */
 function micUnavailable() {
   if (navigator.mediaDevices?.getUserMedia) return null;
   return globalThis.isSecureContext === false
@@ -57,18 +23,16 @@ export function createVoiceSession({ model, voice } = {}) {
   let currentVoice = voice;
 
   let call = null;
-  let audio = null;              // AudioContext
+  let audio = null;
   let audioEl = null;
   let micStream = null;
   let micAnalyser = null;
   let outAnalyser = null;
 
   let state = 'idle';
+  let muted = false;
   let connecting = false;
-  // stop() can land mid-dial. Bumping this retires the dial in flight.
   let generation = 0;
-  // Bumped by the setters, snapshotted at mint: unequal means the pickers moved
-  // after the secret went out, and the live call is on settings nobody asked for.
   let picked = 0;
   let mintedPick = 0;
 
@@ -95,15 +59,12 @@ export function createVoiceSession({ model, voice } = {}) {
     (level) => emit('level', level),
   );
 
-  /* --- lifecycle ----------------------------------------------------------- */
-
   async function start() {
     if (call || connecting) return;
     connecting = true;
     const mine = ++generation;
     const abandoned = () => mine !== generation;
     try {
-      // Prompted before the token is spent, so a denied mic costs nothing.
       const unavailable = micUnavailable();
       if (unavailable) throw new Error(unavailable);
       micStream = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
@@ -112,15 +73,12 @@ export function createVoiceSession({ model, voice } = {}) {
       mintedPick = picked;
       const secret = await fetchClientSecret({ model: current, voice: currentVoice });
       if (abandoned()) return stop();
-      // The proxy has the last word on both — it falls back to its own defaults
-      // for anything it doesn't recognise.
       current = secret.model ?? current;
       currentVoice = secret.voice ?? currentVoice;
 
       audio = new AudioContext();
       micAnalyser = createAnalyser(audio, micStream);
 
-      // The model's voice: played through an element, metered off the same track.
       audioEl = new Audio();
       audioEl.autoplay = true;
 
@@ -129,12 +87,12 @@ export function createVoiceSession({ model, voice } = {}) {
         micStream,
         onEvent: events.handle,
         onTrack: (stream) => {
-          if (abandoned()) return; // a hangup can land between here and the chain below
+          if (abandoned()) return;
           audioEl.srcObject = stream;
           outAnalyser = createAnalyser(audio, stream);
         },
         onClose: (reason) => {
-          if (!call) return; // our own stop() closing the connection
+          if (!call) return;
           if (reason) fail(reason);
           stop();
         },
@@ -152,26 +110,26 @@ export function createVoiceSession({ model, voice } = {}) {
   }
 
   function stop() {
-    generation++; // retires any dial still in flight
+    generation++;
     const closing = call;
-    call = null; // before close(), so onClose knows this teardown is ours
+    call = null;
     meter.stop();
     closing?.close();
     micStream?.getTracks().forEach((track) => track.stop());
     audio?.close();
     if (audioEl) audioEl.srcObject = null;
     micStream = audio = audioEl = null;
+    muted = false;
     micAnalyser = outAnalyser = null;
     events.reset();
     setState('idle');
   }
 
-  /** Typed input, for when speaking out loud isn't an option. Same conversation,
-   *  same voice coming back. */
   function send(text) {
     const content = text.trim();
     if (!content || !call?.open) return;
     messages.push({ role: 'user', content });
+    emit('message', { role: 'user', content });
     call.send({
       type: 'conversation.item.create',
       item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: content }] },
@@ -189,16 +147,16 @@ export function createVoiceSession({ model, voice } = {}) {
     get connected() { return call?.open ?? false; },
     get busy() { return events.responding; },
     get state() { return state; },
+    get muted() { return muted; },
+    set muted(next) {
+      muted = Boolean(next);
+      micStream?.getAudioTracks().forEach((track) => { track.enabled = !muted; });
+    },
     get model() { return current; },
     set model(next) { current = next; picked++; },
-    /** Both are pinned into the client secret, so changing either only takes
-     *  effect on the next call — the page redials. */
     get voice() { return currentVoice; },
     set voice(next) { currentVoice = next; picked++; },
-    /** The live call was minted before the current pick — it is on the wrong
-     *  model or voice, and only another dial can fix that. */
     get stale() { return !!call && picked !== mintedPick; },
-    /** Manual barge-in — the VAD covers the spoken case on its own. */
     cancel() {
       if (events.responding) call?.send({ type: 'response.cancel' });
     },

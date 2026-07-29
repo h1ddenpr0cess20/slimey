@@ -1,25 +1,17 @@
-/**
- * Realtime server events → the session's own vocabulary.
- *
- * Only the handful that change what the orb is doing. The GA event names are
- * `response.output_*`; the older `response.audio*` aliases are still what some
- * model snapshots emit, so both are accepted.
- *
- * This module owns the two pieces of state that only the event stream can
- * advance: whether a response is in flight, and the transcript accumulating
- * for the current turn.
- */
-
 export function createEventHandler({ setState, emit, fail, messages, getModel }) {
   let responding = false;
   let transcript = '';
 
   function flush() {
-    if (transcript) messages.push({ role: 'assistant', content: transcript });
+    if (transcript) record({ role: 'assistant', content: transcript });
     transcript = '';
   }
 
-  // A response can begin and end inside one 'thinking', so 'state' won't carry this.
+  function record(message) {
+    messages.push(message);
+    emit('message', message);
+  }
+
   function setResponding(next) {
     if (responding === next) return;
     responding = next;
@@ -29,8 +21,6 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
   function handle(event) {
     switch (event.type) {
       case 'input_audio_buffer.speech_started':
-        // Barge-in: the server truncates its own playback, we just follow. What
-        // it had already said was heard, so it is logged rather than dropped.
         flush();
         setState('listening');
         break;
@@ -41,8 +31,6 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
 
       case 'response.created':
         setResponding(true);
-        // Audio drives sustain from here on; impulses are reserved for the two
-        // moments a turn changes hands, where a discrete wobble reads as a beat.
         emit('pulse', 0.32);
         setState('thinking');
         break;
@@ -63,7 +51,7 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
 
       case 'conversation.item.input_audio_transcription.completed':
         if (event.transcript?.trim()) {
-          messages.push({ role: 'user', content: event.transcript.trim() });
+          record({ role: 'user', content: event.transcript.trim() });
           emit('user', event.transcript.trim());
           emit('pulse', 0.22);
         }

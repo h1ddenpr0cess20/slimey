@@ -1,26 +1,16 @@
-/**
- * The wiring, and only the wiring.
- *
- * Four pieces that don't know about each other: the orb (geometry), the session
- * (transport), the HUD (what you read) and the controls (what you press). This
- * file is the one place that knows a `level` event should become a wobble and
- * that changing the voice means hanging up.
- */
-
 import './styles.css';
 import './vendor/three-d-stage.js';
 
 import { fetchCatalog } from './api.js';
 import { createSlimeOrb } from './orb/index.js';
+import { createHistory } from './history.js';
 import { createVoiceSession } from './session/index.js';
 import { createControls } from './ui/controls.js';
+import { createHistoryPanel } from './ui/history.js';
 import { createHud } from './ui/hud.js';
 import { stripStageChrome } from './ui/stage.js';
 import { trackKeyboardInset } from './ui/viewport.js';
 
-// Before the await, not after — see ui/stage.js. The element is already
-// upgraded by the import above, and its toolbar would otherwise be on screen
-// for as long as three.js takes to load.
 const stage = stripStageChrome(document.querySelector('three-d-stage'));
 
 const { THREE } = await stage.ready;
@@ -28,25 +18,25 @@ const { THREE } = await stage.ready;
 const orb = createSlimeOrb({ stage, THREE });
 const session = createVoiceSession();
 const hud = createHud();
+const history = createHistory();
+const historyPanel = createHistoryPanel({ history, onNew: startFresh });
 
 trackKeyboardInset();
 
-/* --- controls → session --------------------------------------------------- */
-
 const controls = createControls({
-  getStatus: () => ({ connected: session.connected, busy: session.busy }),
+  getStatus: () => ({ connected: session.connected, busy: session.busy, muted: session.muted }),
 
   async onMicToggle() {
     if (session.connected) {
-      session.stop();
-      hud.hideUser();
+      session.muted = !session.muted;
+      hud.setState(chipState());
+      armIdleMute();
       return;
     }
     hud.setState('connecting');
     hud.clearCaption();
+    history.begin({ model: session.model, voice: session.voice });
     await session.start();
-    // A pick that landed while this was in the air found no live call to hang
-    // up, so redial() dropped it. Deferred past toggleMic's own lock.
     if (session.stale) setTimeout(redial, 0);
   },
 
@@ -68,52 +58,80 @@ const controls = createControls({
   },
 
   onCancel() {
+    if (historyPanel.isOpen) return historyPanel.close();
     session.cancel();
   },
 });
 
-/* Model and voice are both baked into the client secret, so changing either
-   mid-call means hanging up and dialling again. The conversation doesn't
-   survive that — which is the honest behaviour, since the new voice has no
-   memory of what the old one said. */
+const IDLE_MUTE_MS = 60_000;
+let idle = 0;
+
+function armIdleMute() {
+  clearTimeout(idle);
+  idle = 0;
+  if (!session.connected || session.muted) return;
+  if (session.busy || session.state === 'thinking' || session.state === 'speaking') return;
+  idle = setTimeout(() => {
+    if (!session.connected || session.muted) return;
+    session.muted = true;
+    hud.setState(chipState());
+    controls.sync();
+  }, IDLE_MUTE_MS);
+}
+
+function startFresh() {
+  history.end();
+  if (session.connected) redial();
+}
+
+function chipState() {
+  if (!session.connected || !session.muted) return orb.state;
+  return orb.state === 'listening' || orb.state === 'idle' ? 'muted' : orb.state;
+}
+
 function redial() {
   if (!session.connected) return;
   session.stop();
   controls.toggleMic();
 }
 
-/* --- session → orb + HUD --------------------------------------------------
-   The only wiring between transport and animation. 'pulse' arrives when a turn
-   changes hands, 'level' per frame from whichever side of the call is making
-   sound; the orb folds both into the same energy. */
-
 session.on('state', (state) => {
-  // A new turn starts here: the previous answer clears as the slime thinks.
+  if (state === 'idle') {
+    history.end();
+    hud.hideUser();
+  }
   if (state === 'thinking') hud.clearCaption();
   orb.setState(state);
-  hud.setState(orb.state);
+  hud.setState(chipState());
+  armIdleMute();
   controls.sync();
 });
 
-// A response can start and finish inside one 'thinking', so 'state' won't carry it.
-session.on('busy', () => controls.sync());
+session.on('busy', () => {
+  armIdleMute();
+  controls.sync();
+});
 
 session.on('level', (level) => orb.setLevel(level));
 session.on('pulse', (weight) => orb.pulse(weight));
-session.on('text', (chunk) => hud.appendCaption(chunk));
-session.on('user', (text) => hud.showUser(text));
+session.on('text', (chunk) => {
+  hud.appendCaption(chunk);
+  armIdleMute();
+});
+session.on('user', (text) => {
+  hud.showUser(text);
+  armIdleMute();
+});
+
+session.on('message', (message) => history.append(message));
 
 session.on('error', ({ message }) => {
   hud.showError(message);
-  hud.setState(orb.state); // a failed dial never leaves 'idle', so no 'state' clears the chip
+  hud.setState(chipState());
   controls.sync();
 });
 
-/* --- model and voice lists, from the proxy -------------------------------- */
-
 try {
-  // The proxy names the defaults for both pickers; it owns that choice, and the
-  // env vars that override it.
   const catalog = await fetchCatalog();
   if (!catalog.models.length) throw new Error('this key can’t reach any realtime model');
   const chosen = controls.setCatalog(catalog);
@@ -124,11 +142,8 @@ try {
   hud.showError(`${err.message} — is the proxy running? (npm run dev)`);
 }
 
-// Leaving the tab mid-call would otherwise keep the mic hot and the meter spinning.
 window.addEventListener('pagehide', () => session.stop());
 
 controls.sync();
 
-// Focusing the mic saves a keyboard user a tab stop. On a phone it just leaves
-// a focus ring on the control everyone was going to tap anyway.
 if (window.matchMedia('(pointer: fine)').matches) controls.focus();

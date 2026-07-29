@@ -1,14 +1,3 @@
-/**
- * Turning two live audio tracks into one 0..1 number per frame.
- *
- * One rAF loop reads whichever side of the call is making sound. Attack is
- * faster than release, which is what makes the surface feel like it's tracking
- * a voice rather than chasing it.
- */
-
-/** RMS of one analyser frame, mapped to the orb's 0..1 energy. Speech sits
- *  around 0.05–0.2 RMS, so the gain lifts a normal speaking voice to most of
- *  the range without pinning it. */
 export function amplitude(analyser, buffer) {
   analyser.getFloatTimeDomainData(buffer);
   let sum = 0;
@@ -20,10 +9,8 @@ export function createAnalyser(audio, stream) {
   const node = audio.createAnalyser();
   node.fftSize = 1024;
   node.smoothingTimeConstant = 0.4;
-  // Kept: nothing here reaches the destination, so an unreferenced source is collectable.
   node.source = audio.createMediaStreamSource(stream);
   node.source.connect(node);
-  // Parked on the node so the meter loop doesn't reallocate 60 times a second.
   node.buffer = new Float32Array(node.fftSize);
   return node;
 }
@@ -31,10 +18,6 @@ export function createAnalyser(audio, stream) {
 const ATTACK = 0.45;
 const RELEASE = 0.12;
 
-/**
- * @param {() => AnalyserNode | null} pick  which side is live this frame
- * @param {(level: number) => void} onLevel
- */
 export function createMeter(pick, onLevel) {
   let frame = 0;
   let level = 0;

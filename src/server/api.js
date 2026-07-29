@@ -1,18 +1,6 @@
-/**
- * The `/api` surface, as connect-style middleware.
- *
- * Middleware rather than a server so there is exactly one implementation of
- * these routes: the Vite dev server mounts it (see vite.config.js) and the
- * production server mounts it in front of the static handler. Anything that
- * isn't `/api/*` falls through to `next()`.
- *
- *   GET  /api/models   → the realtime models the key can reach, plus defaults.
- *   POST /api/session  → a client secret for one call, persona already baked in.
- */
-
 import { createOpenAIClient } from './openai.js';
 
-const BODY_LIMIT = 4096; // A model id and a voice name. Nothing legitimate is bigger.
+const BODY_LIMIT = 4096;
 
 function sendJSON(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -64,7 +52,6 @@ export function createApiMiddleware(config) {
         return sendJSON(res, 200, await openai.mintClientSecret(payload));
       }
     } catch (err) {
-      // Upstream failures are 502s: the proxy is fine, OpenAI wasn't.
       return sendJSON(res, 502, { error: err?.message ?? String(err) });
     }
 

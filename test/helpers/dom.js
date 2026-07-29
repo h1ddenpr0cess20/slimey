@@ -1,11 +1,3 @@
-/**
- * A jsdom document built from the real index.html.
- *
- * Parsing the shipped markup rather than a fixture means a test fails when an
- * id is renamed out from under a module — which is the whole risk with code
- * that reaches into the DOM by selector.
- */
-
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
@@ -18,8 +10,6 @@ export async function loadPage() {
   markup ??= await readFile(INDEX, 'utf8');
 
   const dom = new JSDOM(markup, {
-    // Loading /src/client/main.js would pull in three and a WebGL context.
-    // These tests are about the modules in isolation.
     runScripts: 'outside-only',
     pretendToBeVisual: true,
   });
@@ -33,10 +23,6 @@ export async function loadPage() {
   };
 }
 
-/**
- * The handful of browser globals the client modules reach for directly.
- * Returns a restore function.
- */
 export function withGlobals(values) {
   const saved = new Map();
   for (const [key, value] of Object.entries(values)) {
