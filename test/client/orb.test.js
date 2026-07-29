@@ -1,12 +1,3 @@
-/**
- * The orb's pure maths. No WebGL — three's geometry and colour classes are
- * plain arithmetic and run fine in Node.
- *
- * The deform suite is the regression guard for the refactor that pulled one
- * deformer out of two near-identical inline loops: it reimplements the original
- * expressions verbatim and demands the shared kernel match them exactly.
- */
-
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import * as THREE from 'three';
@@ -25,9 +16,6 @@ describe('MODES', () => {
   });
 
   it('gives every state every channel', () => {
-    // The easing loop walks the keys of the idle mode and reads mode[k] off
-    // whichever state is current. A channel missing from one state would ease
-    // toward undefined and put NaN into the vertex positions — the orb vanishes.
     for (const [name, mode] of Object.entries(MODES)) {
       assert.deepEqual(Object.keys(mode).sort(), [...CHANNELS].sort(), `${name} is missing a channel`);
       for (const [channel, value] of Object.entries(mode)) {
@@ -99,7 +87,6 @@ describe('createPalette', () => {
   });
 
   it('handles a negative position without producing NaN', () => {
-    // JS % keeps the sign of the dividend; the wrap has to correct for it.
     assert.equal(at(-1), at(4));
     assert.match(at(-0.5), /^[0-9a-f]{6}$/);
   });
@@ -131,7 +118,6 @@ describe('createDeformer', () => {
   const deform = createDeformer(THREE);
   const lobes = createLobes(THREE);
 
-  /** The shell displacement exactly as it was written inline before the split. */
   function originalShell(base, wobble, phase, breathe) {
     const v = new THREE.Vector3();
     const arr = base.slice();
@@ -147,7 +133,6 @@ describe('createDeformer', () => {
     return arr;
   }
 
-  /** The core displacement, likewise — first three lobes, phase running backwards. */
   function originalCore(base, wobble, phase, coreScale) {
     const v = new THREE.Vector3();
     const arr = base.slice();
@@ -194,7 +179,6 @@ describe('createDeformer', () => {
       const base = geometry.attributes.position.array.slice();
       const coreScale = 1 + 0.16 * 0.4;
 
-      // phaseScale -3 is how `- phase * l.speed * 3` survives the generalisation.
       deform(geometry, base, lobes.slice(0, 3), {
         wobble, phase, scale: coreScale, ampScale: 1.5, freqScale: 2.6, phaseScale: -3,
       });
@@ -221,8 +205,6 @@ describe('createDeformer', () => {
 
   it('flags the attribute so the GPU picks the frame up', () => {
     const geometry = new THREE.SphereGeometry(1, 8, 6);
-    // needsUpdate is write-only in three — setting it bumps `version`, which is
-    // what the renderer actually reads.
     const before = geometry.attributes.position.version;
     deform(geometry, geometry.attributes.position.array.slice(), lobes, {
       wobble: 1, phase: 1, scale: 1, ampScale: 1, freqScale: 2.35, phaseScale: 2.2,
@@ -245,17 +227,12 @@ describe('createDeformer', () => {
 });
 
 describe('createSlimeOrb', () => {
-  /* No renderer and no document, so the environment map quietly gives up —
-     which is what it is written to do, and all this needs is the geometry. */
   const stubStage = () => ({ _scene: {}, _renderer: null, setObject() {} });
 
   it('ignores a state that is not one of the four', () => {
     const orb = createSlimeOrb({ stage: stubStage(), THREE });
     orb.setState('speaking');
 
-    // `constructor` and `__proto__` are the ones a truth test lets through:
-    // both are truthy on any object literal, and interpolating towards one
-    // turns every channel into NaN and never recovers.
     for (const junk of ['nonsense', 'constructor', '__proto__', 'toString']) {
       orb.setState(junk);
       assert.equal(orb.state, 'speaking', `${junk} was taken for a mode`);

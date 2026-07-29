@@ -1,11 +1,3 @@
-/**
- * The directional sines that make the surface bulge.
- *
- * Directions come off a Fibonacci sphere so the lobes never line up, and each
- * gets its own frequency, speed, amplitude and phase — the sum reads as smooth
- * organic displacement without a noise texture to sample.
- */
-
 const COUNT = 5;
 
 export function createLobes(THREE, count = COUNT) {

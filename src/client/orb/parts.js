@@ -1,14 +1,3 @@
-/**
- * The four pieces the orb is made of.
- *
- * Each builder returns its mesh plus whatever the animation loop needs to
- * deform or tint it — geometry, material, and a pristine copy of the base
- * vertex positions, since the live attribute array is overwritten every frame.
- *
- * Mesh and material names are load-bearing: the stage's OBJ export turns them
- * into `o` and `usemtl` entries.
- */
-
 export function createShell(THREE) {
   const material = new THREE.MeshPhysicalMaterial({
     name: 'slime_shell',
@@ -57,8 +46,6 @@ export function createCore(THREE) {
   return { mesh, geometry, material, base: geometry.attributes.position.array.slice() };
 }
 
-/** A rim bloom bound to the shell's own geometry, not a second sphere — so it
- *  wobbles with the surface instead of floating around it. */
 export function createGlow(THREE, shellGeometry) {
   const material = new THREE.ShaderMaterial({
     name: 'slime_glow',
@@ -91,7 +78,6 @@ export function createGlow(THREE, shellGeometry) {
   return { mesh, material };
 }
 
-/** Bubbles suspended in the goo, each on its own slow orbit. */
 export function createBubbles(THREE, count = 7) {
   const material = new THREE.MeshPhysicalMaterial({
     name: 'slime_bubble',

@@ -16,6 +16,12 @@ npm run dev               # → http://localhost:5173
 
 Click the mic, allow the browser's microphone prompt, and start talking.
 
+The mic button is a microphone switch, not a hang-up: turning it off stops what
+you send and leaves the answer playing, and the conversation is still there when
+you turn it back on. The mic also turns itself off after a minute of nothing
+said, so it isn't hot on a call nobody is having — the call and everything said
+on it survive that too.
+
 | Script | |
 |---|---|
 | `npm run dev` | Vite, with the proxy mounted as middleware — one process |
@@ -118,6 +124,32 @@ implementation of `/api/*`: `vite.config.js` mounts it in development and
 `src/server/app.js` mounts it in front of the static handler in production. No
 second process, and the key lives in one place either way.
 
+## History
+
+Every completed turn is written to `localStorage` under `slime.history.v1`, one
+record per call, and the `log` button in the composer opens them newest first.
+It is the only thing here that outlives the call: the session forgets a
+conversation at teardown, and a redial starts one the new voice has no memory
+of.
+
+`new` starts a fresh conversation: it closes the record and, if a call is up,
+dials again — the model's memory of what was said is the call itself, so a new
+one is the only thing that clears it.
+
+Nothing is uploaded. The log is in the browser that made the call — audio
+already goes straight to OpenAI without passing through the proxy, and the
+transcript doesn't go even that far. `clear`, which asks once, removes it.
+
+Storage is not assumed to work: private-mode Safari hands back a store that
+throws on write, and the log falls back to memory for the life of the page
+rather than failing the call. The last 40 conversations are kept, and the
+oldest are shed to stay inside a 300 KB budget, since that space belongs to the
+whole origin.
+
+Old turns are not replayed into a new call. Reading them back to the model
+would make the log a memory rather than a record, which is a different feature
+than keeping one.
+
 ## Tools — not yet
 
 The slime has no tools. It answers from what the model already knows: no web
@@ -149,6 +181,7 @@ src/
     main.js             The wiring, and nothing else
     styles.css          The HUD around the orb
     api.js              The proxy's two endpoints, as functions
+    history.js          Past conversations, in localStorage
     orb/                Geometry and animation. Knows nothing about transports
       index.js            The controller and the per-frame loop
       modes.js            Targets per conversational state
@@ -165,6 +198,7 @@ src/
       emitter.js
     ui/
       hud.js              Status chip, transcript, caption
+      history.js          The log panel behind the `log` button
       controls.js         Mic, text field, send, pickers
       viewport.js         Keeps the composer above the on-screen keyboard
     vendor/
@@ -198,7 +232,7 @@ while the model's track is live, `idle` when there is no call.
 ## The transport seam
 
 `session/index.js` exposes `on`, `start`, `stop`, `send`, `cancel`, `messages`,
-`connected`, `busy`, `stale`, `state`, `model`, `voice` — and emits:
+`connected`, `busy`, `stale`, `state`, `muted`, `model`, `voice` — and emits:
 
 ```
 'state'  listening | thinking | speaking | idle
@@ -206,6 +240,7 @@ while the model's track is live, `idle` when there is no call.
 'user'   a completed transcript of what the person said
 'level'  0..1 sustained amplitude, per frame
 'pulse'  0..1 transient, one per discrete event
+'message' a completed turn, { role, content } — what the log stores
 'busy'   whether a response is in flight
 'done'   { model, usage }
 'error'  { message }

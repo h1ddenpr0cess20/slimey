@@ -19,7 +19,6 @@ describe('listRealtimeModels', () => {
 
     const ids = (await client.listRealtimeModels()).map((m) => m.id);
 
-    // Dropped: no 'realtime' in the id, or a tier that can't answer.
     assert.ok(!ids.includes('gpt-4o'));
     for (const excluded of ['gpt-realtime-translate', 'whisper-1-realtime', 'gpt-realtime-transcribe', 'tts-realtime']) {
       assert.ok(!ids.includes(excluded), `${excluded} should not be offered`);
@@ -65,8 +64,6 @@ describe('mintClientSecret', () => {
     const { stub, client } = await clientFor();
     after(() => stub.close());
 
-    // An unknown voice comes back from OpenAI as an opaque 400 halfway through
-    // the SDP handshake, which is a miserable thing to debug from the browser.
     const secret = await client.mintClientSecret({ voice: 'definitely-not-a-voice' });
     assert.equal(secret.voice, 'ballad');
     assert.equal(stub.requests.at(-1).body.session.audio.output.voice, 'ballad');

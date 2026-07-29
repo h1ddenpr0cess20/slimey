@@ -1,6 +1,3 @@
-/** Drive a middleware chain over a real socket, so the tests exercise the same
- *  code path a browser would. */
-
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 

@@ -1,10 +1,3 @@
-/**
- * Which certificate the server picks up, and when it stays on HTTP.
- *
- * The self-signed path is the one a phone depends on, so it is exercised for
- * real — generating a certificate and reading it back as X.509.
- */
-
 import assert from 'node:assert/strict';
 import { X509Certificate } from 'node:crypto';
 import { mkdtemp, writeFile } from 'node:fs/promises';
@@ -36,12 +29,9 @@ describe('tls', () => {
   it('generates a self-signed certificate for --https', async () => {
     const tls = await loadTls({ https: true, env: {} });
 
-    // One PEM in both halves: the plugin emits key and certificate together.
     assert.equal(tls.key, tls.cert);
     const cert = new X509Certificate(tls.cert);
     assert.ok(new Date(cert.validTo) > new Date(), 'a certificate that is already expired is no use');
-    // The phone reaches this over an IP, so the certificate has to cover more
-    // than the hostname.
     assert.match(cert.subjectAltName ?? '', /IP Address:127\.0\.0\.1/);
   });
 
@@ -49,7 +39,6 @@ describe('tls', () => {
     const tls = await loadTls({ https: true, env: {} });
     const config = loadConfig({});
 
-    // `secureProtocol` is only on the TLS one; `listen` is on both.
     assert.ok(createApp(config, { tls }) instanceof (await import('node:https')).Server);
     assert.ok(!(createApp(config) instanceof (await import('node:https')).Server));
   });

@@ -1,11 +1,3 @@
-/**
- * Soft studio environment so the transmissive shell has something to refract.
- *
- * A 64×32 canvas gradient with two blown-out highlights, run through PMREM so
- * roughness blur stays physically sane. A nicety, not a requirement — if
- * anything here throws, the orb still renders.
- */
-
 export function buildEnvironment({ stage, THREE }) {
   try {
     const c = document.createElement('canvas');
@@ -27,6 +19,5 @@ export function buildEnvironment({ stage, THREE }) {
     stage._scene.environment = pmrem.fromEquirectangular(tex).texture;
     pmrem.dispose(); tex.dispose();
   } catch {
-    /* environment is a nicety, not a requirement */
   }
 }

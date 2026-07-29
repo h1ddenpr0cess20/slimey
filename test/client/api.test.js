@@ -6,7 +6,6 @@ import { withGlobals } from '../helpers/dom.js';
 
 let restore = () => {};
 
-/** Records calls and replies with whatever the test names. */
 function stubFetch(reply) {
   const calls = [];
   restore = withGlobals({
@@ -42,8 +41,6 @@ describe('fetchCatalog', () => {
   });
 
   it('still says something useful when the error body is unreadable', async () => {
-    // A proxy that died mid-response, or an HTML error page from something
-    // upstream — there is no `error` field to quote.
     stubFetch(() => ({ status: 502, malformed: true }));
     await assert.rejects(() => fetchCatalog(), /\/api\/models returned 502/);
   });

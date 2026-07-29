@@ -1,11 +1,3 @@
-/**
- * A stand-in for `${OPENAI_BASE_URL}` — the same seam `OPENAI_BASE_URL` exists
- * for in production, pointed at a local server instead of a gateway.
- *
- * Records every request so tests can assert on what the proxy sent, not just
- * on what it returned.
- */
-
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 

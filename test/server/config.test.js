@@ -30,7 +30,6 @@ describe('loadConfig', () => {
   });
 
   it('puts an unrecognised voice at the front of the picker rather than dropping it', () => {
-    // The published list goes stale; the API is the authority on what exists.
     const { voices, defaultVoice } = loadConfig({ OPENAI_VOICE: 'unreleased' });
     assert.equal(defaultVoice, 'unreleased');
     assert.equal(voices[0], 'unreleased');

@@ -16,7 +16,6 @@ describe('createHud', () => {
   afterEach(() => page.close());
 
   it('finds every element it needs in the shipped markup', () => {
-    // Renaming an id in index.html should fail here, not silently at runtime.
     for (const sel of ['#status', '#caption', '#you']) {
       assert.ok(page.$(sel), `${sel} is missing from index.html`);
     }
@@ -40,7 +39,6 @@ describe('createHud', () => {
 
     hud.hideUser();
     assert.ok(!page.$('#you').classList.contains('visible'));
-    // The text stays put so it fades rather than snapping to empty.
     assert.equal(page.$('#you').textContent, 'what are you?');
   });
 
@@ -70,7 +68,6 @@ describe('createHud', () => {
     hud.showError('the call dropped');
     assert.ok(page.$('#caption').classList.contains('error'));
 
-    // A new turn's transcript must not inherit the red.
     hud.appendCaption('Bloop!');
     assert.ok(!page.$('#caption').classList.contains('error'));
   });
@@ -81,9 +78,6 @@ describe('createHud', () => {
     assert.equal(page.$('#caption').textContent, 'second');
   });
 
-  /* The persona asks the model not to use markdown, because everything it
-     writes gets said out loud. It uses some anyway, and a caption that shows
-     the asterisks reads as a bug. */
   describe('the markdown the model was told not to use', () => {
     it('renders bold, emphasis and code as elements', () => {
       hud.appendCaption('A **big** _wobbly_ `slime`!');
@@ -101,8 +95,6 @@ describe('createHud', () => {
     });
 
     it('formats a span whose halves arrive in different chunks', () => {
-      // Deltas break wherever the model's tokens break, which is routinely
-      // between a delimiter and its partner.
       hud.appendCaption('I am a **sli');
       assert.equal(page.$('#caption').querySelector('strong'), null);
 
@@ -120,8 +112,6 @@ describe('createHud', () => {
     });
 
     it('keeps the line breaks the model sent', () => {
-      // Rendered as breaks by `white-space: pre-wrap`; the job here is that
-      // they survive into the DOM rather than being collapsed on the way in.
       hud.appendCaption('One thing.\n\nAnother thing.');
       assert.equal(page.$('#caption').textContent, 'One thing.\n\nAnother thing.');
     });

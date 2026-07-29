@@ -23,10 +23,9 @@ describe('createControls', () => {
 
   beforeEach(async () => {
     page = await loadPage();
-    // `new Option(...)` is a browser global the module uses directly.
     restore = withGlobals({ Option: page.window.Option });
 
-    status = { connected: false, busy: false };
+    status = { connected: false, busy: false, muted: false };
     calls = { mic: 0, submit: [], model: [], voice: [], cancel: 0 };
 
     controls = createControls({
@@ -64,8 +63,27 @@ describe('createControls', () => {
       assert.equal(page.$('#prompt').disabled, false);
       assert.equal(page.$('#send').disabled, false);
       assert.equal(page.$('#mic').getAttribute('aria-pressed'), 'true');
-      assert.equal(page.$('#mic').getAttribute('aria-label'), 'Stop talking');
+      assert.equal(page.$('#mic').getAttribute('aria-label'), 'Turn the microphone off');
       assert.match(page.$('#prompt').placeholder, /Or type/);
+    });
+
+    it('shows a muted call as a mic that is off, not a call that is over', () => {
+      status.connected = true;
+      status.muted = true;
+      controls.sync();
+      assert.equal(page.$('#mic').getAttribute('aria-pressed'), 'false');
+      assert.equal(page.$('#mic').getAttribute('aria-label'), 'Turn the microphone on');
+      assert.ok(page.$('#mic').classList.contains('muted'));
+      assert.equal(page.$('#prompt').disabled, false);
+      assert.match(page.$('#prompt').placeholder, /Or type/);
+    });
+
+    it('does not dress the mic as muted when there is no call at all', () => {
+      status.connected = false;
+      status.muted = true;
+      controls.sync();
+      assert.equal(page.$('#mic').getAttribute('aria-label'), 'Start talking');
+      assert.equal(page.$('#mic').classList.contains('muted'), false);
     });
 
     it('disables send while the slime is mid-answer', () => {
@@ -73,7 +91,6 @@ describe('createControls', () => {
       status.busy = true;
       controls.sync();
       assert.equal(page.$('#send').disabled, true);
-      // The field stays open, so a reply can be typed ahead.
       assert.equal(page.$('#prompt').disabled, false);
     });
   });
@@ -95,7 +112,7 @@ describe('createControls', () => {
       });
 
       const first = slow.toggleMic();
-      await slow.toggleMic();       // should be swallowed
+      await slow.toggleMic();
       await slow.toggleMic();
       assert.equal(page.$('#mic').hasAttribute('data-busy'), true);
 
@@ -159,7 +176,6 @@ describe('createControls', () => {
     });
 
     it('falls back to the first model when the key cannot reach the default', () => {
-      // The proxy names its preference; the key decides what is actually there.
       const chosen = controls.setCatalog({ ...CATALOG, model: 'gpt-realtime-unreleased' });
       assert.equal(chosen.model, 'gpt-realtime-2.1');
       assert.equal(page.$('#model').value, 'gpt-realtime-2.1');
@@ -196,9 +212,6 @@ describe('createControls', () => {
     });
 
     it('keeps the mic locked through a click that was already in the air', async () => {
-      // The catalog request and a hopeful first click race each other; the
-      // dial-in-flight flag is cleared by toggleMic's own finally, so a lock
-      // sharing it would come off with that click and never go back on.
       let release;
       const gate = new Promise((r) => { release = r; });
       const slow = createControls({
@@ -209,7 +222,7 @@ describe('createControls', () => {
       });
 
       const dialling = slow.toggleMic();
-      slow.catalogUnavailable();   // the catalog request loses the race
+      slow.catalogUnavailable();
       release();
       await dialling;
 
