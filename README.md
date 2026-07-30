@@ -244,6 +244,7 @@ src/
     persona.js          Who the slime is, and the session config
     config.js           The environment, resolved once
     static.js           Hosting for dist/ — production only
+docs/                   Policies: the output disclaimer, and what this is not
 test/                   node:test, against a stub OpenAI
 .github/workflows/      CI (lint, tests, build smoke test) and the Docker publish
 ```
@@ -296,3 +297,14 @@ turn changes hands, so the wobble punctuates instead of strobing.
 
 Swapping providers means writing a different `createVoiceSession()` with that
 surface. `main.js` and the orb don't change.
+
+## Policies
+
+Two documents, both worth the two minutes:
+
+- [**AI Output Disclaimer**](docs/ai-output-disclaimer.md) — what the model says
+  is the model's, not the author's, plus the risks that are specific to a live
+  microphone and speech you hear before anyone can check it.
+- [**Not a Companion**](docs/not-a-companion.md) — Slimey is a toy and a demo.
+  It is not a friend, a therapist, or a partner, and the project will not grow in
+  that direction.
