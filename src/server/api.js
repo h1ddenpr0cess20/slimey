@@ -9,14 +9,29 @@ function sendJSON(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+// Past the limit we stop keeping the body but keep reading it, up to a hard
+// ceiling. Answering while the client is still uploading leaves it writing into
+// a socket nobody is draining, which hangs the request instead of failing it.
+const DRAIN_LIMIT = 4 * 1024 * 1024;
+
 async function readJSON(req) {
   const chunks = [];
   let size = 0;
+  let over = false;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > BODY_LIMIT) throw new Error('request body too large');
+    if (size > BODY_LIMIT) {
+      over = true;
+      chunks.length = 0;
+      if (size > DRAIN_LIMIT) {
+        req.destroy();
+        break;
+      }
+      continue;
+    }
     chunks.push(chunk);
   }
+  if (over) throw new Error('request body too large');
   if (!chunks.length) return {};
   const body = JSON.parse(Buffer.concat(chunks).toString());
   if (body === null || typeof body !== 'object') throw new Error('body is not an object');
