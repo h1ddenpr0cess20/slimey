@@ -109,12 +109,12 @@ describe('POST /api/session', () => {
     });
   });
 
-  it('refuses a body far larger than a model id and a voice name', async () => {
+  it('refuses a body far larger than the memory list it is meant to carry', async () => {
     const { stub, middleware } = await api();
     after(() => stub.close());
 
     await withServer(middleware, async (request) => {
-      const { status } = await request('/api/session', post({ model: 'x'.repeat(10_000) }));
+      const { status } = await request('/api/session', post({ model: 'x'.repeat(200_000) }));
       assert.equal(status, 400);
     });
   });

@@ -2,6 +2,7 @@ import { fetchClientSecret } from '../api.js';
 import { createEmitter } from './emitter.js';
 import { createEventHandler } from './events.js';
 import { createAnalyser, createMeter } from './metering.js';
+import { createTools, toolLabel } from './tools.js';
 import { connect } from './webrtc.js';
 
 const MIC_CONSTRAINTS = {
@@ -15,9 +16,10 @@ function micUnavailable() {
     : 'this browser won’t hand over a microphone — try opening the page in Safari or Chrome';
 }
 
-export function createVoiceSession({ model, voice } = {}) {
+export function createVoiceSession({ model, voice, memory } = {}) {
   const { on, emit } = createEmitter();
   const messages = [];
+  const tools = memory ? createTools({ memory }) : {};
 
   let current = model;
   let currentVoice = voice;
@@ -46,12 +48,38 @@ export function createVoiceSession({ model, voice } = {}) {
     emit('error', { message });
   }
 
+  /**
+   * Answers a function call the model made. The result has to go back as a
+   * `function_call_output` item followed by a fresh `response.create` — without
+   * the second frame the model waits forever on its own tool.
+   */
+  function runTool({ call_id: callId, name, args }) {
+    const tool = tools[name];
+    if (!tool) return;
+
+    emit('tool', toolLabel(name));
+    let output;
+    try {
+      output = tool(args);
+    } catch (err) {
+      output = { ok: false, error: err?.message ?? String(err) };
+    }
+
+    call?.send({
+      type: 'conversation.item.create',
+      item: { type: 'function_call_output', call_id: callId, output: JSON.stringify(output) },
+    });
+    call?.send({ type: 'response.create' });
+    emit('memory', output);
+  }
+
   const events = createEventHandler({
     setState,
     emit,
     fail,
     messages,
     getModel: () => current,
+    onFunctionCall: runTool,
   });
 
   const meter = createMeter(
@@ -71,7 +99,11 @@ export function createVoiceSession({ model, voice } = {}) {
       if (abandoned()) return stop();
 
       mintedPick = picked;
-      const secret = await fetchClientSecret({ model: current, voice: currentVoice });
+      const secret = await fetchClientSecret({
+        model: current,
+        voice: currentVoice,
+        memories: memory?.lines() ?? [],
+      });
       if (abandoned()) return stop();
       current = secret.model ?? current;
       currentVoice = secret.voice ?? currentVoice;

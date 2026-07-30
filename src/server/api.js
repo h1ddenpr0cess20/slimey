@@ -1,6 +1,8 @@
 import { createOpenAIClient } from './openai.js';
 
-const BODY_LIMIT = 4096;
+// A session request carries the page's memories, so the cap is the memory list
+// rather than a model name.
+const BODY_LIMIT = 64 * 1024;
 
 function sendJSON(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -39,6 +41,7 @@ export function createApiMiddleware(config) {
           model: config.defaultModel,
           voices: config.voices,
           voice: config.defaultVoice,
+          memory: config.memory,
         });
       }
 

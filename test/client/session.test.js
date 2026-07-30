@@ -57,7 +57,11 @@ describe('createVoiceSession', () => {
       session.model = 'gpt-realtime-mini';
       session.voice = 'cedar';
       await dial();
-      assert.deepEqual(env.secretRequests.at(-1), { model: 'gpt-realtime-mini', voice: 'cedar' });
+      assert.deepEqual(env.secretRequests.at(-1), {
+        model: 'gpt-realtime-mini',
+        voice: 'cedar',
+        memories: [],
+      });
     });
 
     it('lets the proxy overrule both', async () => {
