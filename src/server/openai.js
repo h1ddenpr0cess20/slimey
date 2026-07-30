@@ -2,7 +2,15 @@ import { sessionConfig } from './persona.js';
 
 const NOT_CONVERSATIONAL = /translate|whisper|transcribe|tts/;
 
-export function createOpenAIClient({ baseUrl, apiKey, defaultModel, defaultVoice, voices, secretTtl }) {
+export function createOpenAIClient({
+  baseUrl,
+  apiKey,
+  defaultModel,
+  defaultVoice,
+  voices,
+  secretTtl,
+  memory = true,
+}) {
   async function request(path, init = {}) {
     const res = await fetch(`${baseUrl}${path}`, {
       ...init,
@@ -34,7 +42,7 @@ export function createOpenAIClient({ baseUrl, apiKey, defaultModel, defaultVoice
         .map((m) => ({ id: m.id, display_name: m.id }));
     },
 
-    async mintClientSecret({ model, voice } = {}) {
+    async mintClientSecret({ model, voice, memories } = {}) {
       const chosen = voices.includes(voice) ? voice : defaultVoice;
       const chosenModel = typeof model === 'string'
         && model.includes('realtime') && !NOT_CONVERSATIONAL.test(model)
@@ -44,7 +52,7 @@ export function createOpenAIClient({ baseUrl, apiKey, defaultModel, defaultVoice
         method: 'POST',
         body: JSON.stringify({
           expires_after: { anchor: 'created_at', seconds: secretTtl },
-          session: sessionConfig(chosenModel, chosen),
+          session: sessionConfig(chosenModel, chosen, { memories, memory }),
         }),
       });
       return {

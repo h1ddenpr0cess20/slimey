@@ -2,7 +2,8 @@
 
 A voice agent rendered as a slime: translucent and colour-shifting, with its
 wobble, glow and hue drift driven by a live OpenAI Realtime call. You talk, it
-talks back, and the surface moves with whichever of you is making sound.
+talks back, and the surface moves with whichever of you is making sound. It
+remembers what you tell it to, between calls.
 
 ## Run
 
@@ -43,6 +44,7 @@ Both `npm run dev` and `npm start` read `.env`.
 | Variable | Default | Role |
 |---|---|---|
 | `OPENAI_API_KEY` | — | Required. Stays in the Node process. |
+| `MEMORY` | `true` | The `remember` and `forget` tools, and the memory block in the prompt |
 | `OPENAI_VOICE` | `ballad` | Which voice the picker opens on (`ballad`, `marin`, `cedar`, `verse`, …) |
 | `OPENAI_REALTIME_MODEL` | `gpt-realtime-2.1` | Preselected in the picker when the key can reach it |
 | `OPENAI_BASE_URL` | OpenAI | Points the proxy at a gateway or a stub |
@@ -100,8 +102,9 @@ Publishing from a fork needs a `DOCKERHUB_TOKEN` repository secret, plus a
 The API key never reaches the browser, and the audio never reaches the proxy:
 
 1. The page asks `POST /api/session` for a client secret, naming the model and
-   voice it wants. The proxy mints one from `/v1/realtime/client_secrets` with
-   the persona, voice and turn detection already attached, valid for ten minutes.
+   voice it wants and sending whatever it has in memory. The proxy mints one
+   from `/v1/realtime/client_secrets` with the persona, memories, voice, tool
+   list and turn detection already attached, valid for ten minutes.
 2. The page opens an `RTCPeerConnection`, adds the mic track, and POSTs its SDP
    offer straight to `/v1/realtime/calls` with that secret.
 3. Audio flows browser ↔ OpenAI over WebRTC. Events flow over an `oai-events`
@@ -150,26 +153,53 @@ Old turns are not replayed into a new call. Reading them back to the model
 would make the log a memory rather than a record, which is a different feature
 than keeping one.
 
-## Tools — not yet
+## Tools
 
-The slime has no tools. It answers from what the model already knows: no web
-search, no retrieval, no function calls. Ask it about this morning and it should
-say it doesn't know, which is what the system prompt asks for.
+The slime has no tools beyond memory. It answers from what the model already knows: no web
+search, no retrieval. Ask it about this morning and it should say it
+doesn't know, which is what the system prompt asks for.
 
-That's a choice rather than a limitation. A realtime session takes tools two
-ways, and both are cheap here:
+The two exceptions are `remember` and `forget`, which the page executes itself
+against browser storage — see below.
 
-- **Function tools**, which we execute — declare them in `session.tools`, handle
-  `response.function_call_arguments.done` on the data channel, and post a
-  `function_call_output` back.
-- **Remote MCP servers**, which the Realtime API executes itself. Point
-  `session.tools` at a server URL and its tools are live. Anything needing auth
-  headers belongs in the server-side `/v1/realtime/client_secrets` payload, which
-  is where `sessionConfig()` already lives — a few lines in
-  `src/server/persona.js` and nothing in the page.
+Remote MCP servers, which the Realtime API executes on its own, would be a few
+lines in the same place: `sessionConfig()` in `src/server/persona.js` already
+builds the tool list, and anything needing auth headers stays in the server-side
+`/v1/realtime/client_secrets` payload rather than in the page.
 
-The plan is to pick this up when GPT-Live reaches the API and move onto that at
-the same time, rather than fitting tools to a pipeline that's due to be replaced.
+## Memory
+
+The log is a record. Memory is the part the slime actually carries into the next
+call: a short list of details, kept in `localStorage` under `slime.memory.v1`
+and appended to the persona as a labelled block when the secret is minted.
+
+Ask it to remember something and it calls `remember`; ask it to forget
+it and it calls `forget`, which drops every stored line matching the keyword.
+Both run in the page: the model's call arrives on the data channel as
+`response.function_call_arguments.done`, the page answers it against
+`localStorage`, and the result goes back as a `function_call_output` followed by
+a `response.create`. Without that second frame the model waits forever on its
+own tool.
+
+The `memory` button opens the list, where you can add a line by hand, drop one,
+switch the whole thing off, or clear it. The list is capped at 25 lines, each
+flattened to one line and cut at 600 characters; past the cap the oldest goes.
+
+Editing the list by hand takes effect on the next call rather than the current
+one — the instructions are baked into the client secret, and the page has no
+copy of the persona to re-send with. A `remember` the model makes mid-call needs
+no such round trip: it already knows what it just stored, because the tool
+result said so.
+
+Nothing is uploaded to us — the list rides in the `POST /api/session` body,
+which is the same request that already names the model and voice, and the proxy
+keeps no copy. `MEMORY=false` removes both the tools and the prompt block for
+everyone the server serves.
+
+Memories are text the person typed or dictated, so they land inside the prompt.
+They are flattened onto one line each and capped in `persona.js` before they get
+there, which keeps a memory from opening a new instruction paragraph, and the
+persona is always first in the string.
 
 ## Layout
 
@@ -182,6 +212,7 @@ src/
     styles.css          The HUD around the orb
     api.js              The proxy's two endpoints, as functions
     history.js          Past conversations, in localStorage
+    memory.js           What it remembers between calls, in localStorage
     orb/                Geometry and animation. Knows nothing about transports
       index.js            The controller and the per-frame loop
       modes.js            Targets per conversational state
@@ -194,11 +225,13 @@ src/
       index.js            Lifecycle: mic, secret, connect, meter, tear down
       webrtc.js           Peer connection, data channel, SDP handshake
       events.js           Realtime server events → this vocabulary
+      tools.js            remember/forget, run in the page
       metering.js         Two analysers → one 0..1 number per frame
       emitter.js
     ui/
       hud.js              Status chip, transcript, caption
       history.js          The log panel behind the `log` button
+      memory.js           The memory panel behind the `memory` button
       controls.js         Mic, text field, send, pickers
       viewport.js         Keeps the composer above the on-screen keyboard
     vendor/
@@ -211,6 +244,7 @@ src/
     persona.js          Who the slime is, and the session config
     config.js           The environment, resolved once
     static.js           Hosting for dist/ — production only
+docs/                   Policies: the output disclaimer, and what this is not
 test/                   node:test, against a stub OpenAI
 .github/workflows/      CI (lint, tests, build smoke test) and the Docker publish
 ```
@@ -237,6 +271,8 @@ while the model's track is live, `idle` when there is no call.
 ```
 'state'  listening | thinking | speaking | idle
 'text'   a chunk of assistant transcript
+'tool'   a label while a tool works, or null
+'memory' the result of a remember/forget the model just called
 'user'   a completed transcript of what the person said
 'level'  0..1 sustained amplitude, per frame
 'pulse'  0..1 transient, one per discrete event
@@ -261,3 +297,14 @@ turn changes hands, so the wobble punctuates instead of strobing.
 
 Swapping providers means writing a different `createVoiceSession()` with that
 surface. `main.js` and the orb don't change.
+
+## Policies
+
+Two documents, both worth the two minutes:
+
+- [**AI Output Disclaimer**](docs/ai-output-disclaimer.md) — what the model says
+  is the model's, not the author's, plus the risks that are specific to a live
+  microphone and speech you hear before anyone can check it.
+- [**Not a Companion**](docs/not-a-companion.md) — Slimey is a toy and a demo.
+  It is not a friend, a therapist, or a partner, and the project will not grow in
+  that direction.

@@ -13,6 +13,11 @@ export const KNOWN_VOICES = Object.freeze([
 
 const SECRET_TTL = 600;
 
+function flag(value, fallback) {
+  if (value == null || value === '') return fallback;
+  return !/^(0|false|no|off)$/i.test(value);
+}
+
 export function loadConfig(env = process.env) {
   const defaultVoice = env.OPENAI_VOICE || KNOWN_VOICES[0];
 
@@ -26,5 +31,6 @@ export function loadConfig(env = process.env) {
       ? [...KNOWN_VOICES]
       : [defaultVoice, ...KNOWN_VOICES],
     secretTtl: SECRET_TTL,
+    memory: flag(env.MEMORY, true),
   };
 }

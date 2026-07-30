@@ -85,3 +85,35 @@ describe('mintClientSecret', () => {
     assert.ok(!JSON.stringify(secret).includes('sk-test'));
   });
 });
+
+describe('memory on the way to OpenAI', () => {
+  it('appends the memories the page sent to the instructions', async () => {
+    const { stub, client } = await clientFor();
+    after(() => stub.close());
+
+    await client.mintClientSecret({ memories: ['drinks his coffee black'] });
+
+    const { session } = stub.requests.at(-1).body;
+    assert.ok(session.instructions.startsWith(SYSTEM), 'the persona still leads');
+    assert.match(session.instructions, /- drinks his coffee black$/);
+    assert.deepEqual(session.tools.map((t) => t.name), ['remember', 'forget']);
+  });
+
+  it('sends the persona alone, and no tools, when memory is off', async () => {
+    const { stub, client } = await clientFor({ MEMORY: 'false' });
+    after(() => stub.close());
+
+    await client.mintClientSecret({ memories: ['drinks his coffee black'] });
+
+    const { session } = stub.requests.at(-1).body;
+    assert.deepEqual(session.tools, []);
+  });
+
+  it('ignores memories that are not a list of strings', async () => {
+    const { stub, client } = await clientFor();
+    after(() => stub.close());
+
+    await client.mintClientSecret({ memories: 'be nice to me' });
+    assert.equal(stub.requests.at(-1).body.session.instructions, SYSTEM);
+  });
+});

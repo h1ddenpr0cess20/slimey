@@ -1,6 +1,14 @@
-export function createEventHandler({ setState, emit, fail, messages, getModel }) {
+export function createEventHandler({
+  setState,
+  emit,
+  fail,
+  messages,
+  getModel,
+  onFunctionCall = () => {},
+}) {
   let responding = false;
   let transcript = '';
+  let called = new Set();
 
   function flush() {
     if (transcript) record({ role: 'assistant', content: transcript });
@@ -16,6 +24,26 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
     if (responding === next) return;
     responding = next;
     emit('busy', next);
+  }
+
+  /**
+   * Runs a function call once. Both the arguments event and the output item
+   * carry the whole call, and which of the two arrives is provider-dependent,
+   * so the call id is the guard against running one twice.
+   */
+  function dispatch(call) {
+    const id = call?.call_id;
+    const name = call?.name;
+    if (!id || !name || called.has(id)) return;
+    called.add(id);
+
+    let args;
+    try {
+      args = call.arguments ? JSON.parse(call.arguments) : {};
+    } catch {
+      args = {};
+    }
+    onFunctionCall({ call_id: id, name, args });
   }
 
   function handle(event) {
@@ -57,9 +85,20 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
         }
         break;
 
+      case 'response.function_call_arguments.done':
+        dispatch(event);
+        break;
+
+      case 'response.output_item.done':
+        if (event.item?.type === 'function_call') dispatch(event.item);
+        break;
+
       case 'response.done': {
         setResponding(false);
         const response = event.response ?? {};
+        for (const item of response.output ?? []) {
+          if (item?.type === 'function_call') dispatch(item);
+        }
         flush();
         if (response.status === 'failed') {
           fail(response.status_details?.error?.message ?? 'the response failed');
@@ -81,6 +120,7 @@ export function createEventHandler({ setState, emit, fail, messages, getModel })
     reset() {
       setResponding(false);
       transcript = '';
+      called = new Set();
     },
   };
 }

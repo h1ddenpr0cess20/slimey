@@ -109,13 +109,30 @@ describe('POST /api/session', () => {
     });
   });
 
-  it('refuses a body far larger than a model id and a voice name', async () => {
+  it('refuses a body far larger than the memory list it is meant to carry', async () => {
     const { stub, middleware } = await api();
     after(() => stub.close());
 
     await withServer(middleware, async (request) => {
-      const { status } = await request('/api/session', post({ model: 'x'.repeat(10_000) }));
+      const { status, body } = await request('/api/session', post({ model: 'x'.repeat(200_000) }));
       assert.equal(status, 400);
+      assert.equal(body.error, 'malformed request body');
+      assert.equal(stub.requests.length, 0, 'nothing should have been minted');
+    });
+  });
+
+  // An oversized body has to be read to the end before it can be answered, or
+  // the client is left writing into a socket nobody drains and the request hangs
+  // rather than failing. This one is big enough to outrun the socket buffer.
+  it('answers an oversized body instead of stalling on the rest of it', async () => {
+    const { stub, middleware } = await api();
+    after(() => stub.close());
+
+    await withServer(middleware, async (request) => {
+      const started = Date.now();
+      const { status } = await request('/api/session', post({ model: 'x'.repeat(2_000_000) }));
+      assert.equal(status, 400);
+      assert.ok(Date.now() - started < 10_000, 'it should fail fast, not hang');
     });
   });
 });

@@ -9,12 +9,15 @@ function harness() {
   const failures = [];
   const messages = [];
 
+  const calls = [];
+
   const handler = createEventHandler({
     setState: (s) => states.push(s),
     emit: (event, payload) => emitted.push([event, payload]),
     fail: (message) => failures.push(message),
     messages,
     getModel: () => 'gpt-realtime-2.1',
+    onFunctionCall: (call) => calls.push(call),
   });
 
   return {
@@ -23,6 +26,7 @@ function harness() {
     emitted,
     failures,
     messages,
+    calls,
     of: (name) => emitted.filter(([e]) => e === name).map(([, p]) => p),
     feed: (...events) => events.forEach((e) => handler.handle(e)),
   };
@@ -211,5 +215,68 @@ describe('responding', () => {
 
     h.feed({ type: 'response.done', response: {} });
     assert.deepEqual(h.messages, []);
+  });
+});
+
+describe('function calls', () => {
+  const CALL = {
+    type: 'response.function_call_arguments.done',
+    call_id: 'call_1',
+    name: 'remember',
+    arguments: '{"memory":"drinks his coffee black"}',
+  };
+
+  it('hands the parsed arguments over once', () => {
+    const h = harness();
+    h.feed(CALL);
+
+    assert.deepEqual(h.calls, [
+      { call_id: 'call_1', name: 'remember', args: { memory: 'drinks his coffee black' } },
+    ]);
+  });
+
+  it('runs a call once however many events carry it', () => {
+    const h = harness();
+    const item = { type: 'function_call', call_id: 'call_1', name: 'remember', arguments: '{}' };
+    h.feed(
+      CALL,
+      { type: 'response.output_item.done', item },
+      { type: 'response.done', response: { output: [item] } },
+    );
+
+    assert.equal(h.calls.length, 1);
+  });
+
+  it('picks the call up from an output item alone', () => {
+    const h = harness();
+    h.feed({
+      type: 'response.output_item.done',
+      item: { type: 'function_call', call_id: 'call_2', name: 'forget', arguments: '{"keyword":"dog"}' },
+    });
+
+    assert.deepEqual(h.calls, [{ call_id: 'call_2', name: 'forget', args: { keyword: 'dog' } }]);
+  });
+
+  it('treats unparseable or missing arguments as none', () => {
+    const h = harness();
+    h.feed({ ...CALL, arguments: '{not json' }, { ...CALL, call_id: 'call_3', arguments: undefined });
+
+    assert.deepEqual(h.calls.map((c) => c.args), [{}, {}]);
+  });
+
+  it('ignores a call with no id or no name', () => {
+    const h = harness();
+    h.feed({ ...CALL, call_id: undefined }, { ...CALL, name: undefined });
+
+    assert.deepEqual(h.calls, []);
+  });
+
+  it('lets the same call id through again on a fresh call', () => {
+    const h = harness();
+    h.feed(CALL);
+    h.handler.reset();
+    h.feed(CALL);
+
+    assert.equal(h.calls.length, 2);
   });
 });

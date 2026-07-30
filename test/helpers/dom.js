@@ -19,6 +19,7 @@ export async function loadPage() {
     document: dom.window.document,
     window: dom.window,
     $: (sel) => dom.window.document.querySelector(sel),
+    $$: (sel) => [...dom.window.document.querySelectorAll(sel)],
     close: () => dom.window.close(),
   };
 }
