@@ -5,6 +5,12 @@ wobble, glow and hue drift driven by a live OpenAI Realtime call. You talk, it
 talks back, and the surface moves with whichever of you is making sound. It
 remembers what you tell it to, between calls.
 
+![Slime Orb in a desktop browser](docs/screenshots/desktop.png)
+
+<p align="center">
+  <img src="docs/screenshots/mobile.png" alt="Slime Orb on a phone" width="300">
+</p>
+
 ## Run
 
 ```sh
@@ -19,9 +25,8 @@ Click the mic, allow the browser's microphone prompt, and start talking.
 
 The mic button is a microphone switch, not a hang-up: turning it off stops what
 you send and leaves the answer playing, and the conversation is still there when
-you turn it back on. The mic also turns itself off after a minute of nothing
-said, so it isn't hot on a call nobody is having — the call and everything said
-on it survive that too.
+you turn it back on. It also switches itself off after a minute of silence, and
+the call survives that too.
 
 | Script | |
 |---|---|
@@ -60,17 +65,13 @@ npm run dev:lan           # → https://192.168.x.x:5173, printed on start
 Microphone access needs a secure context. `localhost` is one; a LAN address over
 plain HTTP is not — `navigator.mediaDevices` doesn't exist there, so the page
 can't even raise the mic prompt. The `:lan` scripts serve HTTPS with a
-self-signed certificate.
+self-signed certificate, cached in `node_modules/.vite/`.
 
 No browser trusts that certificate, so the phone shows a warning the first time
 ("Advanced" → proceed on Chrome, "Show details" → "visit this website" on
-Safari). Tap through it once per device. The certificate is cached in
-`node_modules/.vite/` and shared by both `:lan` scripts.
-
-To skip the warning, bring a certificate the device already trusts —
-[mkcert](https://github.com/FiloSottile/mkcert) issues one for a LAN IP — and
-point `SSL_KEY` and `SSL_CERT` at it. `npm start` then serves HTTPS without the
-`--https` flag.
+Safari). Tap through it once per device. To skip it, point `SSL_KEY` and
+`SSL_CERT` at a certificate the device already trusts —
+[mkcert](https://github.com/FiloSottile/mkcert) issues one for a LAN IP.
 
 ## Docker
 
@@ -79,23 +80,14 @@ docker run --rm -p 5173:5173 -e OPENAI_API_KEY=sk-... h1ddenpr0cess20/slimey
 ```
 
 Images go to Docker Hub on every push to `main` (`latest`) and on `v*` tags
-(`1.2.3`, `1.2`), built for `linux/amd64` and `linux/arm64`. Configuration is the
-same set of variables as `.env` — pass them with `-e` or `--env-file .env`.
+(`1.2.3`, `1.2`), for `linux/amd64` and `linux/arm64`. Configuration is the same
+set of variables as `.env` — pass them with `-e` or `--env-file .env`.
 
-The container serves HTTP on `PORT` (5173 by default) and expects TLS to be
-terminated in front of it. To serve TLS from the container instead, mount a
-certificate and point `SSL_KEY` and `SSL_CERT` at it; the self-signed `--https`
-path needs a devDependency that the production image doesn't carry.
-
-To build it yourself:
-
-```sh
-docker build -t slimey .
-```
-
-Publishing from a fork needs a `DOCKERHUB_TOKEN` repository secret, plus a
-`DOCKERHUB_USERNAME` repository variable if your Docker Hub account isn't
-`h1ddenpr0cess20`.
+The container serves HTTP on `PORT` and expects TLS to be terminated in front of
+it; to serve TLS from the container, mount a certificate and set `SSL_KEY` and
+`SSL_CERT`. Build it yourself with `docker build -t slimey .`. Publishing from a
+fork needs a `DOCKERHUB_TOKEN` secret, plus a `DOCKERHUB_USERNAME` variable if
+your Docker Hub account isn't `h1ddenpr0cess20`.
 
 ## How the call is wired
 
@@ -116,11 +108,9 @@ response for the typed path.
 
 The picker lists every realtime model the key can reach, minus the ones that
 can't hold a conversation — the `translate` and `whisper` tiers are streaming
-translation and speech-to-text.
-
-Both pickers are pinned into the client secret, so changing the model or the
-voice mid-call hangs up and dials again. The conversation doesn't carry over,
-since the new voice has no memory of what the old one said.
+translation and speech-to-text. Both pickers are pinned into the client secret,
+so changing the model or the voice mid-call hangs up and dials again, and the
+conversation doesn't carry over.
 
 The proxy is connect-style middleware rather than a server, so there's only one
 implementation of `/api/*`: `vite.config.js` mounts it in development and
@@ -131,51 +121,41 @@ second process, and the key lives in one place either way.
 
 Every completed turn is written to `localStorage` under `slime.history.v1`, one
 record per call, and the `log` button in the composer opens them newest first.
-It is the only thing here that outlives the call: the session forgets a
-conversation at teardown, and a redial starts one the new voice has no memory
-of.
+`new` closes the record and, if a call is up, dials again — the model's memory of
+what was said is the call itself, so a new call is the only thing that clears it.
 
-`new` starts a fresh conversation: it closes the record and, if a call is up,
-dials again — the model's memory of what was said is the call itself, so a new
-one is the only thing that clears it.
+Nothing is uploaded: audio already goes straight to OpenAI without passing
+through the proxy, and the transcript doesn't go even that far. `clear`, which
+asks once, removes it. The last 40 conversations are kept, and the oldest are
+shed to stay inside a 300 KB budget, since that space belongs to the whole
+origin. Private-mode Safari hands back a store that throws on write, so the log
+falls back to memory for the life of the page rather than failing the call.
 
-Nothing is uploaded. The log is in the browser that made the call — audio
-already goes straight to OpenAI without passing through the proxy, and the
-transcript doesn't go even that far. `clear`, which asks once, removes it.
-
-Storage is not assumed to work: private-mode Safari hands back a store that
-throws on write, and the log falls back to memory for the life of the page
-rather than failing the call. The last 40 conversations are kept, and the
-oldest are shed to stay inside a 300 KB budget, since that space belongs to the
-whole origin.
-
-Old turns are not replayed into a new call. Reading them back to the model
-would make the log a memory rather than a record, which is a different feature
-than keeping one.
+Old turns are not replayed into a new call. That would make the log a memory
+rather than a record, which is a different feature than keeping one.
 
 ## Tools
 
-The slime has no tools beyond memory. It answers from what the model already knows: no web
-search, no retrieval. Ask it about this morning and it should say it
-doesn't know, which is what the system prompt asks for.
+The slime has no tools beyond memory. It answers from what the model already
+knows: no web search, no retrieval. Ask it about this morning and it should say
+it doesn't know, which is what the system prompt asks for.
 
 The two exceptions are `remember` and `forget`, which the page executes itself
-against browser storage — see below.
-
-Remote MCP servers, which the Realtime API executes on its own, would be a few
-lines in the same place: `sessionConfig()` in `src/server/persona.js` already
-builds the tool list, and anything needing auth headers stays in the server-side
-`/v1/realtime/client_secrets` payload rather than in the page.
+against browser storage. Remote MCP servers, which the Realtime API executes on
+its own, would be a few lines in the same place: `sessionConfig()` in
+`src/server/persona.js` already builds the tool list, and anything needing auth
+headers stays in the server-side `/v1/realtime/client_secrets` payload rather
+than in the page.
 
 ## Memory
 
-The log is a record. Memory is the part the slime actually carries into the next
-call: a short list of details, kept in `localStorage` under `slime.memory.v1`
-and appended to the persona as a labelled block when the secret is minted.
+The log is a record. Memory is what the slime carries into the next call: a
+short list of details, kept in `localStorage` under `slime.memory.v1` and
+appended to the persona as a labelled block when the secret is minted.
 
-Ask it to remember something and it calls `remember`; ask it to forget
-it and it calls `forget`, which drops every stored line matching the keyword.
-Both run in the page: the model's call arrives on the data channel as
+Ask it to remember something and it calls `remember`; ask it to forget it and it
+calls `forget`, which drops every stored line matching the keyword. Both run in
+the page: the model's call arrives on the data channel as
 `response.function_call_arguments.done`, the page answers it against
 `localStorage`, and the result goes back as a `function_call_output` followed by
 a `response.create`. Without that second frame the model waits forever on its
@@ -197,9 +177,19 @@ keeps no copy. `MEMORY=false` removes both the tools and the prompt block for
 everyone the server serves.
 
 Memories are text the person typed or dictated, so they land inside the prompt.
-They are flattened onto one line each and capped in `persona.js` before they get
-there, which keeps a memory from opening a new instruction paragraph, and the
-persona is always first in the string.
+Flattening and capping them in `persona.js` keeps a memory from opening a new
+instruction paragraph, and the persona is always first in the string.
+
+## States
+
+`idle` · `listening` · `thinking` · `speaking` — each a set of targets for
+wobble amplitude, lobe speed, hue drift, breathing, spin, core glow and rim
+halo. The orb eases between them, so transitions read as the same creature
+changing mood rather than a cut.
+
+The call maps onto them directly: `listening` from `speech_started` and between
+turns, `thinking` from `speech_stopped` until the first audio frame, `speaking`
+while the model's track is live, `idle` when there is no call.
 
 ## Layout
 
@@ -244,7 +234,7 @@ src/
     persona.js          Who the slime is, and the session config
     config.js           The environment, resolved once
     static.js           Hosting for dist/ — production only
-docs/                   Policies: the output disclaimer, and what this is not
+docs/                   Policies, and the screenshots above
 test/                   node:test, against a stub OpenAI
 .github/workflows/      CI (lint, tests, build smoke test) and the Docker publish
 ```
@@ -252,34 +242,23 @@ test/                   node:test, against a stub OpenAI
 `src/client/vendor/three-d-stage.js` is a copied starter component with two
 local changes, listed at the top of the file — re-copying it drops them.
 
-## States
-
-`idle` · `listening` · `thinking` · `speaking` — each a set of targets for
-wobble amplitude, lobe speed, hue drift, breathing, spin, core glow and rim halo.
-The orb eases between them, so transitions read as the same creature changing
-mood rather than a cut.
-
-The call maps onto them directly: `listening` from `speech_started` and between
-turns, `thinking` from `speech_stopped` until the first audio frame, `speaking`
-while the model's track is live, `idle` when there is no call.
-
 ## The transport seam
 
 `session/index.js` exposes `on`, `start`, `stop`, `send`, `cancel`, `messages`,
 `connected`, `busy`, `stale`, `state`, `muted`, `model`, `voice` — and emits:
 
 ```
-'state'  listening | thinking | speaking | idle
-'text'   a chunk of assistant transcript
-'tool'   a label while a tool works, or null
-'memory' the result of a remember/forget the model just called
-'user'   a completed transcript of what the person said
-'level'  0..1 sustained amplitude, per frame
-'pulse'  0..1 transient, one per discrete event
+'state'   listening | thinking | speaking | idle
+'text'    a chunk of assistant transcript
+'tool'    a label while a tool works, or null
+'memory'  the result of a remember/forget the model just called
+'user'    a completed transcript of what the person said
+'level'   0..1 sustained amplitude, per frame
+'pulse'   0..1 transient, one per discrete event
 'message' a completed turn, { role, content } — what the log stores
-'busy'   whether a response is in flight
-'done'   { model, usage }
-'error'  { message }
+'busy'    whether a response is in flight
+'done'    { model, usage }
+'error'   { message }
 ```
 
 The orb takes audio-shaped input:
@@ -299,8 +278,6 @@ Swapping providers means writing a different `createVoiceSession()` with that
 surface. `main.js` and the orb don't change.
 
 ## Policies
-
-Two documents, both worth the two minutes:
 
 - [**AI Output Disclaimer**](docs/ai-output-disclaimer.md) — what the model says
   is the model's, not the author's, plus the risks that are specific to a live
