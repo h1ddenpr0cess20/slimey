@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import { createVoiceSession, recap } from '../../src/client/session/index.js';
+import { createVoiceSession } from '../../src/client/session/index.js';
 import { installMediaStack } from '../helpers/fake-rtc.js';
 
 describe('createVoiceSession', () => {
@@ -61,6 +61,7 @@ describe('createVoiceSession', () => {
         model: 'gpt-realtime-mini',
         voice: 'cedar',
         memories: [],
+        resumed: false,
       });
     });
 
@@ -217,7 +218,7 @@ describe('createVoiceSession', () => {
       { role: 'assistant', content: 'Something you can shout.' },
     ];
 
-    it('hands the turns over as the call opens, and asks for nothing back', async () => {
+    it('lays the turns down as items, in the shape each role takes', async () => {
       session.context = earlier;
       await dial();
 
@@ -227,15 +228,34 @@ describe('createVoiceSession', () => {
           item: {
             type: 'message',
             role: 'user',
-            content: [{ type: 'input_text', text: recap(earlier) }],
+            status: 'completed',
+            content: [{ type: 'input_text', text: 'what should I call it?' }],
+          },
+        },
+        {
+          type: 'conversation.item.create',
+          item: {
+            type: 'message',
+            role: 'assistant',
+            status: 'completed',
+            content: [{ type: 'output_text', text: 'Something you can shout.' }],
           },
         },
       ]);
     });
 
+    it('tells the server to explain them, so the persona is not the page\'s to write', async () => {
+      session.context = earlier;
+      await dial();
+
+      assert.equal(env.secretRequests.at(-1).resumed, true);
+    });
+
     it('says nothing extra on a call that was not picked up', async () => {
       await dial();
+
       assert.deepEqual(peer().channel.sent, []);
+      assert.equal(env.secretRequests.at(-1).resumed, false);
     });
 
     it('keeps them for the next dial, so a voice change keeps the thread', async () => {
@@ -244,8 +264,7 @@ describe('createVoiceSession', () => {
       session.stop();
       await dial();
 
-      assert.equal(peer().channel.sent.length, 1);
-      assert.match(peer().channel.sent[0].item.content[0].text, /^\[Picking up/);
+      assert.equal(peer().channel.sent.length, 2);
     });
 
     it('takes nothing but a list of turns', async () => {

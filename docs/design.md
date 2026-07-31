@@ -47,8 +47,19 @@ life of the page rather than failing the call.
 
 Old turns are not replayed into a new call on their own — that would make the
 log a memory rather than a record. `continue` on an entry in the log is the one
-way past that, and it is asked for, once, per conversation: the stored turns go
-up as a single item in the person's own voice, ahead of anything anyone says.
+way past that, and it is asked for, once, per conversation.
+
+What goes up then is the conversation itself, not a description of one: one
+`conversation.item.create` per turn on the data channel, a user message carrying
+`input_text` and an assistant message carrying `output_text`, ahead of anything
+said in the new call. That is the shape the realtime API takes for history, and
+it is the only shape that works — flattening a transcript into a single message
+leaves the model with no history at all, only somebody telling it about one.
+
+The page says only whether it is resuming, as a boolean on the session request;
+the line explaining what those turns are is written into the instructions when
+the secret is minted, so it stays server-side. The replay is capped at 40 turns
+and 6 KB, oldest shed first.
 
 Memory is capped at 25 lines, each flattened to one line and cut at 600
 characters; past the cap the oldest goes. `remember` and `forget` run in the

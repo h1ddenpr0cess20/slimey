@@ -42,7 +42,7 @@ export function createOpenAIClient({
         .map((m) => ({ id: m.id, display_name: m.id }));
     },
 
-    async mintClientSecret({ model, voice, memories } = {}) {
+    async mintClientSecret({ model, voice, memories, resumed } = {}) {
       const chosen = voices.includes(voice) ? voice : defaultVoice;
       const chosenModel = typeof model === 'string'
         && model.includes('realtime') && !NOT_CONVERSATIONAL.test(model)
@@ -52,7 +52,7 @@ export function createOpenAIClient({
         method: 'POST',
         body: JSON.stringify({
           expires_after: { anchor: 'created_at', seconds: secretTtl },
-          session: sessionConfig(chosenModel, chosen, { memories, memory }),
+          session: sessionConfig(chosenModel, chosen, { memories, memory, resumed: Boolean(resumed) }),
         }),
       });
       return {
