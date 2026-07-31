@@ -63,7 +63,8 @@ describe('createControls', () => {
       assert.equal(page.$('#prompt').disabled, false);
       assert.equal(page.$('#send').disabled, false);
       assert.equal(page.$('#mic').getAttribute('aria-pressed'), 'true');
-      assert.equal(page.$('#mic').getAttribute('aria-label'), 'Turn the microphone off');
+      assert.equal(page.$('#mic').getAttribute('aria-label'),
+        'Turn the microphone off. Hold to hang up.');
       assert.match(page.$('#prompt').placeholder, /Or type/);
     });
 
@@ -72,7 +73,8 @@ describe('createControls', () => {
       status.muted = true;
       controls.sync();
       assert.equal(page.$('#mic').getAttribute('aria-pressed'), 'false');
-      assert.equal(page.$('#mic').getAttribute('aria-label'), 'Turn the microphone on');
+      assert.equal(page.$('#mic').getAttribute('aria-label'),
+        'Turn the microphone on. Hold to hang up.');
       assert.ok(page.$('#mic').classList.contains('muted'));
       assert.equal(page.$('#prompt').disabled, false);
       assert.match(page.$('#prompt').placeholder, /Or type/);
@@ -137,6 +139,119 @@ describe('createControls', () => {
     it('is wired to its own click event', () => {
       click('#mic');
       assert.equal(calls.mic, 1);
+    });
+  });
+
+  /**
+   * The second job on the one button: a tap mutes, a press held down hangs up.
+   * These build their own controls, with a hold short enough to wait for.
+   */
+  describe('holding the mic down', () => {
+    let held;
+
+    beforeEach(async () => {
+      page.close();
+      page = await loadPage();
+      status = { connected: true, busy: false, muted: false };
+      held = { mic: 0, hangUp: 0 };
+
+      createControls({
+        root: page.document,
+        getStatus: () => status,
+        onMicToggle: async () => { held.mic++; },
+        onHangUp: () => { held.hangUp++; },
+        onSubmit: () => {}, onModelChange: () => {}, onVoiceChange: () => {}, onCancel: () => {},
+        hangMs: 15,
+      });
+    });
+
+    const fire = (type) => page.$('#mic').dispatchEvent(new page.window.Event(type, { bubbles: true }));
+    const key = (type, k) => page.$('#mic')
+      .dispatchEvent(new page.window.KeyboardEvent(type, { key: k, bubbles: true }));
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 40));
+
+    it('hangs the call up, and does not mute it on the way', async () => {
+      fire('pointerdown');
+      await settle();
+      assert.equal(held.hangUp, 1);
+      assert.equal(held.mic, 0);
+    });
+
+    it('swallows the click that ends the press, which would toggle a dead call', async () => {
+      fire('pointerdown');
+      await settle();
+      fire('pointerup');
+      fire('click');
+      assert.equal(held.hangUp, 1);
+      assert.equal(held.mic, 0);
+    });
+
+    it('is the tap it always was when the press is let go in time', async () => {
+      fire('pointerdown');
+      fire('pointerup');
+      fire('click');
+      await settle();
+      assert.equal(held.hangUp, 0);
+      assert.equal(held.mic, 1);
+    });
+
+    it('takes the next tap normally, once a hold has ended a call', async () => {
+      fire('pointerdown');
+      await settle();
+      fire('pointerup');
+      fire('click');
+
+      status.connected = false;
+      fire('click');
+      assert.equal(held.mic, 1, 'the tap after a hang-up dials again');
+    });
+
+    it('does not arm when there is no call to end', async () => {
+      status.connected = false;
+      fire('pointerdown');
+      assert.equal(page.$('#mic').classList.contains('holding'), false);
+      await settle();
+      assert.equal(held.hangUp, 0);
+    });
+
+    it('shows that it is being held, and stops showing it when it lands', async () => {
+      fire('pointerdown');
+      assert.ok(page.$('#mic').classList.contains('holding'));
+      await settle();
+      assert.equal(page.$('#mic').classList.contains('holding'), false);
+    });
+
+    it('calls the hold off when the pointer leaves the button', async () => {
+      fire('pointerdown');
+      fire('pointerleave');
+      assert.equal(page.$('#mic').classList.contains('holding'), false);
+      await settle();
+      assert.equal(held.hangUp, 0);
+    });
+
+    it('ignores a right-click, which is a menu and not a hold', async () => {
+      page.$('#mic').dispatchEvent(
+        new page.window.MouseEvent('pointerdown', { bubbles: true, button: 2 }),
+      );
+      await settle();
+      assert.equal(held.hangUp, 0);
+    });
+
+    it('holds from the keyboard on Space, where Enter stays a tap', async () => {
+      key('keydown', ' ');
+      await settle();
+      assert.equal(held.hangUp, 1);
+
+      key('keydown', 'Enter');
+      await settle();
+      assert.equal(held.hangUp, 1);
+    });
+
+    it('lets go when the button loses focus mid-hold', async () => {
+      key('keydown', ' ');
+      fire('blur');
+      await settle();
+      assert.equal(held.hangUp, 0);
     });
   });
 

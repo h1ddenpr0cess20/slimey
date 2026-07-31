@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import { createVoiceSession } from '../../src/client/session/index.js';
+import { createVoiceSession, recap } from '../../src/client/session/index.js';
 import { installMediaStack } from '../helpers/fake-rtc.js';
 
 describe('createVoiceSession', () => {
@@ -208,6 +208,51 @@ describe('createVoiceSession', () => {
 
       assert.ok(env.audioContexts.every((c) => c.closed) || env.audioContexts.length === 0);
       assert.equal(env.pendingFrames.size, 0, 'the meter must not keep spinning');
+    });
+  });
+
+  describe('a conversation picked back up', () => {
+    const earlier = [
+      { role: 'user', content: 'what should I call it?' },
+      { role: 'assistant', content: 'Something you can shout.' },
+    ];
+
+    it('hands the turns over as the call opens, and asks for nothing back', async () => {
+      session.context = earlier;
+      await dial();
+
+      assert.deepEqual(peer().channel.sent, [
+        {
+          type: 'conversation.item.create',
+          item: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: recap(earlier) }],
+          },
+        },
+      ]);
+    });
+
+    it('says nothing extra on a call that was not picked up', async () => {
+      await dial();
+      assert.deepEqual(peer().channel.sent, []);
+    });
+
+    it('keeps them for the next dial, so a voice change keeps the thread', async () => {
+      session.context = earlier;
+      await dial();
+      session.stop();
+      await dial();
+
+      assert.equal(peer().channel.sent.length, 1);
+      assert.match(peer().channel.sent[0].item.content[0].text, /^\[Picking up/);
+    });
+
+    it('takes nothing but a list of turns', async () => {
+      session.context = null;
+      assert.deepEqual(session.context, []);
+      await dial();
+      assert.deepEqual(peer().channel.sent, []);
     });
   });
 
