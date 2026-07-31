@@ -11,10 +11,10 @@ export function fetchCatalog() {
   return json('/api/models');
 }
 
-export function fetchClientSecret({ model, voice, memories }) {
+export function fetchClientSecret({ model, voice, memories, resumed }) {
   return json('/api/session', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ model, voice, memories }),
+    body: JSON.stringify({ model, voice, memories, resumed }),
   });
 }

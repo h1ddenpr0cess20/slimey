@@ -19,12 +19,19 @@ describe('createHistoryPanel', () => {
   let history;
   let panel;
   let fresh;
+  let picked;
 
   beforeEach(async () => {
     page = await loadPage();
     history = createHistory({ storage: fakeStorage() });
     fresh = 0;
-    panel = createHistoryPanel({ root: page.document, history, onNew: () => { fresh++; } });
+    picked = [];
+    panel = createHistoryPanel({
+      root: page.document,
+      history,
+      onNew: () => { fresh++; },
+      onResume: (id) => picked.push(id),
+    });
   });
 
   afterEach(() => page.close());
@@ -108,6 +115,47 @@ describe('createHistoryPanel', () => {
       panel.open();
       assert.equal(page.$('#history-new').disabled, true);
       assert.equal(page.document.querySelectorAll('#history-log .turn').length, 1);
+    });
+  });
+
+  describe('picking one back up', () => {
+    function stored() {
+      history.begin({ voice: 'cedar' });
+      history.append({ role: 'user', content: 'what should I call it?' });
+      const [{ id }] = history.conversations;
+      history.end();
+      return id;
+    }
+
+    it('offers a continue on every entry, and hands the id to the page', () => {
+      const id = stored();
+      panel.open();
+
+      const button = page.$('#history-log .resume');
+      assert.equal(button.textContent, 'continue');
+      button.click();
+
+      assert.deepEqual(picked, [id]);
+      assert.equal(panel.isOpen, false, 'it gets out of the way to let you talk');
+    });
+
+    it('offers nothing to pick up on the conversation already being talked in', () => {
+      stored();
+      const id = history.conversations[0].id;
+      history.resume(id);
+      panel.open();
+
+      const button = page.$('#history-log .resume');
+      assert.equal(button.textContent, 'live');
+      assert.equal(button.disabled, true);
+      button.click();
+      assert.deepEqual(picked, []);
+    });
+
+    it('names the conversation it would continue, for a screen reader', () => {
+      stored();
+      panel.open();
+      assert.match(page.$('#history-log .resume').getAttribute('aria-label'), /^Continue the conversation from /);
     });
   });
 

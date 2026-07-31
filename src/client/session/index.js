@@ -9,6 +9,48 @@ const MIC_CONSTRAINTS = {
   audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
 };
 
+/** How much of an earlier conversation rides along when one is picked up. */
+const PRIOR_TURNS = 40;
+const PRIOR_CHARS = 6000;
+
+/**
+ * The turns of an earlier conversation, trimmed to what is worth carrying and
+ * cut down to the two roles a conversation has. They travel as turns rather
+ * than as a summary of turns, because that is what the realtime API takes: one
+ * `conversation.item.create` each, a user message holding `input_text` and an
+ * assistant message holding `output_text`. Describing the history inside a
+ * single message instead leaves the model with no history at all — only
+ * somebody telling it about one.
+ *
+ * The oldest go first when there are too many: what was said last is what the
+ * next sentence is most likely to follow from.
+ */
+export function prior(turns = []) {
+  const kept = turns
+    .filter((turn) => turn?.content && (turn.role === 'user' || turn.role === 'assistant'))
+    .slice(-PRIOR_TURNS)
+    .map((turn) => ({ role: turn.role, content: String(turn.content).slice(0, PRIOR_CHARS) }));
+
+  let total = kept.reduce((sum, turn) => sum + turn.content.length, 0);
+  while (total > PRIOR_CHARS && kept.length > 1) {
+    total -= kept.shift().content.length;
+  }
+
+  return kept;
+}
+
+/** One replayed turn, in the shape the API takes for that role. */
+export function historyItem({ role, content }) {
+  const part = role === 'assistant'
+    ? { type: 'output_text', text: content }
+    : { type: 'input_text', text: content };
+
+  return {
+    type: 'conversation.item.create',
+    item: { type: 'message', role, status: 'completed', content: [part] },
+  };
+}
+
 function micUnavailable() {
   if (navigator.mediaDevices?.getUserMedia) return null;
   return globalThis.isSecureContext === false
@@ -32,6 +74,7 @@ export function createVoiceSession({ model, voice, memory } = {}) {
   let outAnalyser = null;
 
   let state = 'idle';
+  let context = [];
   let muted = false;
   let connecting = false;
   let generation = 0;
@@ -99,10 +142,14 @@ export function createVoiceSession({ model, voice, memory } = {}) {
       if (abandoned()) return stop();
 
       mintedPick = picked;
+      /** The turns are settled before the session is minted: the instructions
+       *  have to say what they are, and that is decided server-side. */
+      const earlier = prior(context);
       const secret = await fetchClientSecret({
         model: current,
         voice: currentVoice,
         memories: memory?.lines() ?? [],
+        resumed: earlier.length > 0,
       });
       if (abandoned()) return stop();
       current = secret.model ?? current;
@@ -130,6 +177,13 @@ export function createVoiceSession({ model, voice, memory } = {}) {
         },
       });
       if (abandoned()) return stop();
+
+      /**
+       * An earlier conversation, laid back down turn by turn ahead of anything
+       * said in this one. No `response.create` behind it: it is history to be
+       * read, not a question waiting on an answer.
+       */
+      for (const turn of earlier) call.send(historyItem(turn));
 
       meter.start();
       setState('listening');
@@ -175,6 +229,13 @@ export function createVoiceSession({ model, voice, memory } = {}) {
     start,
     stop,
     send,
+    /**
+     * The turns of a conversation being picked up again. They are handed over
+     * on the next dial rather than now — there may be no call yet, and this is
+     * what a redial re-sends, so a voice change mid-conversation keeps it.
+     */
+    get context() { return context; },
+    set context(turns) { context = Array.isArray(turns) ? turns : []; },
     get messages() { return messages; },
     get connected() { return call?.open ?? false; },
     get busy() { return events.responding; },

@@ -61,6 +61,7 @@ describe('createVoiceSession', () => {
         model: 'gpt-realtime-mini',
         voice: 'cedar',
         memories: [],
+        resumed: false,
       });
     });
 
@@ -208,6 +209,69 @@ describe('createVoiceSession', () => {
 
       assert.ok(env.audioContexts.every((c) => c.closed) || env.audioContexts.length === 0);
       assert.equal(env.pendingFrames.size, 0, 'the meter must not keep spinning');
+    });
+  });
+
+  describe('a conversation picked back up', () => {
+    const earlier = [
+      { role: 'user', content: 'what should I call it?' },
+      { role: 'assistant', content: 'Something you can shout.' },
+    ];
+
+    it('lays the turns down as items, in the shape each role takes', async () => {
+      session.context = earlier;
+      await dial();
+
+      assert.deepEqual(peer().channel.sent, [
+        {
+          type: 'conversation.item.create',
+          item: {
+            type: 'message',
+            role: 'user',
+            status: 'completed',
+            content: [{ type: 'input_text', text: 'what should I call it?' }],
+          },
+        },
+        {
+          type: 'conversation.item.create',
+          item: {
+            type: 'message',
+            role: 'assistant',
+            status: 'completed',
+            content: [{ type: 'output_text', text: 'Something you can shout.' }],
+          },
+        },
+      ]);
+    });
+
+    it('tells the server to explain them, so the persona is not the page\'s to write', async () => {
+      session.context = earlier;
+      await dial();
+
+      assert.equal(env.secretRequests.at(-1).resumed, true);
+    });
+
+    it('says nothing extra on a call that was not picked up', async () => {
+      await dial();
+
+      assert.deepEqual(peer().channel.sent, []);
+      assert.equal(env.secretRequests.at(-1).resumed, false);
+    });
+
+    it('keeps them for the next dial, so a voice change keeps the thread', async () => {
+      session.context = earlier;
+      await dial();
+      session.stop();
+      await dial();
+
+      assert.equal(peer().channel.sent.length, 2);
+    });
+
+    it('takes nothing but a list of turns', async () => {
+      session.context = null;
+      assert.deepEqual(session.context, []);
+      await dial();
+      assert.deepEqual(peer().channel.sent, []);
     });
   });
 
