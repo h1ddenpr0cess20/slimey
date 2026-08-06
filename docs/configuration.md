@@ -58,6 +58,17 @@ its own, would be a few lines in the same place: `sessionConfig()` in
 headers stays in the server-side `/v1/realtime/client_secrets` payload rather
 than in the page.
 
+### The tools panel, ahead of the tools
+
+`tools` opens the panel those switches will live in. It is empty today, and says
+so: the slime has nothing to switch beyond memory, which keeps its own switch in
+the `memory` panel. `/api/models` publishes the list — `switches`, empty for now
+— and the page renders one row per entry, so a tool declared in `sessionConfig()`
+becomes a switch without a change to the panel.
+
+The switches themselves are per browser, kept in `localStorage`, and they can
+only ever take a tool away. What exists stays the server's to decide.
+
 ## The log and the memory
 
 `log` opens past conversations, newest first. `new` closes the record and, if a

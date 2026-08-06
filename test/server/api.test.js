@@ -30,6 +30,7 @@ describe('GET /api/models', () => {
       assert.equal(body.voice, 'cedar');
       assert.ok(body.voices.includes('cedar'));
       assert.ok(body.models.every((m) => m.id.includes('realtime')));
+      assert.deepEqual(body.switches, [], 'the panel is built; the tools are not here yet');
     });
   });
 

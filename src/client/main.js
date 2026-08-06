@@ -8,7 +8,9 @@ import { createMemory } from './memory.js';
 import { createVoiceSession } from './session/index.js';
 import { createControls } from './ui/controls.js';
 import { createHistoryPanel } from './ui/history.js';
+import { createToolSwitches } from './tools.js';
 import { createMemoryPanel } from './ui/memory.js';
+import { createToolsPanel } from './ui/tools.js';
 import { createHud } from './ui/hud.js';
 import { stripStageChrome } from './ui/stage.js';
 import { trackKeyboardInset } from './ui/viewport.js';
@@ -24,6 +26,8 @@ const hud = createHud();
 const history = createHistory();
 const historyPanel = createHistoryPanel({ history, onNew: startFresh, onResume: pickUp });
 const memoryPanel = createMemoryPanel({ memory });
+const switches = createToolSwitches();
+const toolsPanel = createToolsPanel({ switches });
 
 trackKeyboardInset();
 
@@ -68,6 +72,7 @@ const controls = createControls({
   },
 
   onCancel() {
+    if (toolsPanel.isOpen) return toolsPanel.close();
     if (memoryPanel.isOpen) return memoryPanel.close();
     if (historyPanel.isOpen) return historyPanel.close();
     session.cancel();
