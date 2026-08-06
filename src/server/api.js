@@ -57,6 +57,12 @@ export function createApiMiddleware(config) {
           voices: config.voices,
           voice: config.defaultVoice,
           memory: config.memory,
+          /**
+           * The tools the page may switch off for its own call. Empty until
+           * this session declares one worth switching — the panel is built and
+           * waiting for them.
+           */
+          switches: [],
         });
       }
 

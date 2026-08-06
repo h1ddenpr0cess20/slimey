@@ -29,6 +29,11 @@ back on. It also switches itself off after a minute of silence, and the call
 survives that too. Holding the mic down is the hang-up — a ring closes around it
 while you hold, and the call ends when it lands.
 
+`tools` is where the switches for the slime's tools will be. It is empty today —
+memory is all there is, and it has its own switch — but the panel and the
+storage behind it are wired, so a tool the session learns to declare shows up
+there with a switch of its own.
+
 The log keeps every conversation. `continue` on one picks it back up: the call is
 dialled again with those turns handed over as context, and what you say from
 there lands in the same entry rather than a new one.
