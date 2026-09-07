@@ -10,6 +10,7 @@ import { createControls } from './ui/controls.js';
 import { createHistoryPanel } from './ui/history.js';
 import { createToolSwitches } from './tools.js';
 import { createMemoryPanel } from './ui/memory.js';
+import { createMenu } from './ui/menu.js';
 import { createToolsPanel } from './ui/tools.js';
 import { createHud } from './ui/hud.js';
 import { stripStageChrome } from './ui/stage.js';
@@ -23,6 +24,7 @@ const orb = createSlimeOrb({ stage, THREE });
 const memory = createMemory();
 const session = createVoiceSession({ memory });
 const hud = createHud();
+const menu = createMenu();
 const history = createHistory();
 const historyPanel = createHistoryPanel({ history, onNew: startFresh, onResume: pickUp });
 const memoryPanel = createMemoryPanel({ memory });
@@ -75,6 +77,7 @@ const controls = createControls({
     if (toolsPanel.isOpen) return toolsPanel.close();
     if (memoryPanel.isOpen) return memoryPanel.close();
     if (historyPanel.isOpen) return historyPanel.close();
+    if (menu.isOpen) return menu.close();
     session.cancel();
   },
 });
