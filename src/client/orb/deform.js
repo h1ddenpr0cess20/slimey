@@ -1,5 +1,5 @@
-export function createDeformer(THREE) {
-  const v = new THREE.Vector3();
+export function createDeformer(GFX) {
+  const v = new GFX.Vector3();
 
   return function deform(geometry, base, lobes, { wobble, phase, scale, ampScale, freqScale, phaseScale }) {
     const attribute = geometry.attributes.position;
