@@ -5,20 +5,20 @@ import { ENERGY_GAIN, MODES } from './modes.js';
 import { createPalette } from './palette.js';
 import { createBubbles, createCore, createGlow, createShell } from './parts.js';
 
-export function createSlimeOrb({ stage, THREE }) {
-  buildEnvironment({ stage, THREE });
+export function createSlimeOrb({ stage, GFX }) {
+  buildEnvironment({ stage, GFX });
 
-  const paletteAt = createPalette(THREE);
-  const deform = createDeformer(THREE);
-  const lobes = createLobes(THREE);
+  const paletteAt = createPalette(GFX);
+  const deform = createDeformer(GFX);
+  const lobes = createLobes(GFX);
   const coreLobes = lobes.slice(0, 3);
 
-  const shell = createShell(THREE);
-  const core = createCore(THREE);
-  const glow = createGlow(THREE, shell.geometry);
-  const bubbles = createBubbles(THREE);
+  const shell = createShell(GFX);
+  const core = createCore(GFX);
+  const glow = createGlow(GFX, shell.geometry);
+  const bubbles = createBubbles(GFX);
 
-  const orb = new THREE.Group();
+  const orb = new GFX.Group();
   orb.name = 'slime_orb';
   orb.add(shell.mesh, core.mesh, glow.mesh, ...bubbles.meshes);
 
@@ -30,11 +30,11 @@ export function createSlimeOrb({ stage, THREE }) {
   let impulse = 0;
   let energy = 0;
 
-  const tmpColor = new THREE.Color();
-  const white = new THREE.Color('#ffffff');
+  const tmpColor = new GFX.Color();
+  const white = new GFX.Color('#ffffff');
   let hue = 0;
   let phase = 0;
-  const timer = new THREE.Timer();
+  const timer = new GFX.Timer();
 
   shell.mesh.onBeforeRender = () => {
     timer.update();
