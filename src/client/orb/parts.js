@@ -1,3 +1,7 @@
+import glowFragment from './glow.frag.glsl?raw';
+import glowVertex from './glow.vert.glsl?raw';
+import glowWGSL from './glow.wgsl?raw';
+
 export function createShell(GFX) {
   const material = new GFX.MeshPhysicalMaterial({
     name: 'slime_shell',
@@ -50,39 +54,8 @@ export function createGlow(GFX, shellGeometry) {
   const material = new GFX.ShaderMaterial({
     name: 'slime_glow',
     uniforms: { uColor: { value: new GFX.Color('#38f2b6') }, uStrength: { value: 0.5 } },
-    glsl: {
-      vertex: `
-        varying vec3 vN; varying vec3 vP;
-        void main() {
-          vN = normalize(normalMatrix * normal);
-          vec4 mv = modelViewMatrix * vec4(position * 1.035, 1.0);
-          vP = mv.xyz;
-          gl_Position = projectionMatrix * mv;
-        }`,
-      fragment: `
-        uniform vec3 uColor; uniform float uStrength;
-        varying vec3 vN; varying vec3 vP;
-        void main() {
-          float f = 1.0 - abs(dot(normalize(vN), normalize(-vP)));
-          float a = pow(f, 2.2) * (1.0 - pow(f, 8.0)) * uStrength;
-          gl_FragColor = vec4(uColor * a, a);
-        }`,
-    },
-    wgsl: `
-      struct Varyings { @builtin(position) position: vec4f, @location(0) vN: vec3f, @location(1) vP: vec3f };
-      @vertex fn vs(@location(0) position: vec3f, @location(1) normal: vec3f) -> Varyings {
-        var out: Varyings;
-        out.vN = normalize(object.normalMatrix * normal);
-        let mv = object.modelViewMatrix * vec4f(position * 1.035, 1.0);
-        out.vP = mv.xyz;
-        out.position = object.projectionMatrix * mv;
-        return out;
-      }
-      @fragment fn fs(in: Varyings) -> @location(0) vec4f {
-        let f = 1.0 - abs(dot(normalize(in.vN), normalize(-in.vP)));
-        let a = pow(f, 2.2) * (1.0 - pow(f, 8.0)) * material.uStrength;
-        return vec4f(material.uColor * a, a);
-      }`,
+    glsl: { vertex: glowVertex, fragment: glowFragment },
+    wgsl: glowWGSL,
     transparent: true,
     blending: GFX.AdditiveBlending,
     side: GFX.FrontSide,
